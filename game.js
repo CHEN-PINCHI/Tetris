@@ -56,13 +56,14 @@ const ARR_MS = 40;
 // AI 難度設定
 //   thinkDelay : 出現新方塊到開始動作的延遲 (ms)
 //   moveDelay  : 每個按鍵動作之間的間隔 (ms)
-//   topRatio   : 從前 N% 的候選位置中隨機挑(0=永遠最佳)
+//   topRatio   : 從前 N% 的候選中隨機挑(0=永遠最佳)
 //   useHold    : 是否會用 Hold
-//   maxLevel   : 限制 AI 的最大等級(避免太快壓垮 Easy AI)
+//   lookahead  : 是否評估下一塊(1-step lookahead)
+//   maxLevel   : 限制 AI 的最大等級
 const AI_DIFFICULTIES = {
-  easy:   { name: '簡單', thinkDelay: 420, moveDelay: 180, topRatio: 0.45, useHold: false, maxLevel: 1 },
-  normal: { name: '一般', thinkDelay: 200, moveDelay: 90,  topRatio: 0.15, useHold: true,  maxLevel: 5 },
-  hard:   { name: '困難', thinkDelay: 70,  moveDelay: 40,  topRatio: 0.04, useHold: true,  maxLevel: 99 },
+  easy:   { name: '簡單', thinkDelay: 350, moveDelay: 140, topRatio: 0.18, useHold: false, lookahead: false, maxLevel: 2 },
+  normal: { name: '一般', thinkDelay: 150, moveDelay: 65,  topRatio: 0.05, useHold: true,  lookahead: true,  maxLevel: 8 },
+  hard:   { name: '困難', thinkDelay: 35,  moveDelay: 22,  topRatio: 0,    useHold: true,  lookahead: true,  maxLevel: 99 },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -1011,37 +1012,79 @@ class AIController {
     this.lastPiece = this.game.current;
   }
 
-  computeBestPlacement() {
-    const candidates = [];
-    const tryType = (type, fromHold) => {
-      let shape = SHAPES[type].map(r => r.slice());
-      const seen = new Set();
-      for (let rot = 0; rot < 4; rot++) {
-        const key = shape.map(r => r.join('')).join('|');
-        if (!seen.has(key)) {
-          seen.add(key);
-          for (let x = -2; x <= COLS + 2; x++) {
-            const result = this.tryPlace(shape, x);
-            if (result) {
-              const score = this.evaluate(result.board, result.cleared);
-              candidates.push({ type, fromHold, rotation: rot, x, score });
-            }
+  enumerateForPiece(type, board) {
+    const out = [];
+    let shape = SHAPES[type].map(r => r.slice());
+    const seen = new Set();
+    for (let rot = 0; rot < 4; rot++) {
+      const key = shape.map(r => r.join('')).join('|');
+      if (!seen.has(key)) {
+        seen.add(key);
+        for (let x = -2; x <= COLS + 2; x++) {
+          const result = this.tryPlaceOnBoard(board, shape, x);
+          if (result) {
+            out.push({
+              type, rotation: rot, x, fromHold: false,
+              resultBoard: result.board,
+              cleared: result.cleared,
+            });
           }
         }
-        shape = this.rotateShape(shape);
       }
-    };
+      shape = this.rotateShape(shape);
+    }
+    return out;
+  }
 
-    tryType(this.game.current.type, false);
+  bestFutureScore(type, board) {
+    const futures = this.enumerateForPiece(type, board);
+    if (futures.length === 0) return -1e6; // 連下一塊都放不下 → 慘
+    let best = -Infinity;
+    for (const f of futures) {
+      const s = this.evaluate(f.resultBoard, f.cleared);
+      if (s > best) best = s;
+    }
+    return best;
+  }
+
+  computeBestPlacement() {
+    const board = this.game.board;
+    const candidates = this.enumerateForPiece(this.game.current.type, board);
+
+    // 加入 Hold 後的候選
+    let holdSecondType = null;
     if (this.cfg.useHold) {
       const holdType = this.game.held || (this.game.next && this.game.next.type);
       if (holdType && holdType !== this.game.current.type) {
-        tryType(holdType, true);
+        const holdCands = this.enumerateForPiece(holdType, board);
+        holdCands.forEach(c => { c.fromHold = true; });
+        candidates.push(...holdCands);
+        // 若 held 已存在,Hold 後下一塊仍是 next.type;
+        // 若 held 空,Hold 會抽掉 next,再下一塊未知 → 不做 lookahead
+        holdSecondType = this.game.held ? (this.game.next && this.game.next.type) : null;
+      }
+    }
+
+    const secondTypeForCurrent = this.game.next ? this.game.next.type : null;
+
+    for (const cand of candidates) {
+      cand.base = this.evaluate(cand.resultBoard, cand.cleared);
+      if (this.cfg.lookahead) {
+        const secondType = cand.fromHold ? holdSecondType : secondTypeForCurrent;
+        if (secondType) {
+          cand.future = this.bestFutureScore(secondType, cand.resultBoard);
+          cand.score = cand.base + cand.future;
+        } else {
+          cand.score = cand.base;
+        }
+      } else {
+        cand.score = cand.base;
       }
     }
 
     if (candidates.length === 0) return null;
     candidates.sort((a, b) => b.score - a.score);
+    if (this.cfg.topRatio <= 0) return candidates[0];
     const topK = Math.max(1, Math.floor(candidates.length * this.cfg.topRatio));
     return candidates[Math.floor(Math.random() * topK)];
   }
@@ -1069,8 +1112,7 @@ class AIController {
     return false;
   }
 
-  tryPlace(shape, x) {
-    const board = this.game.board;
+  tryPlaceOnBoard(board, shape, x) {
     let y = -shape.length;
     if (this.collidesAt(board, shape, x, y)) return null;
     while (!this.collidesAt(board, shape, x, y + 1)) y++;
@@ -1095,7 +1137,7 @@ class AIController {
     return { board: cleaned, cleared, dropY: y };
   }
 
-  // Dellacherie 風近似權重
+  // El-Tetris 風近似權重(更重視避免洞)
   evaluate(board, lines) {
     const heights = [];
     let holes = 0;
@@ -1110,13 +1152,26 @@ class AIController {
       }
       heights.push(topY === -1 ? 0 : ROWS - topY);
     }
-    const aggregateHeight = heights.reduce((a, b) => a + b, 0);
+    const aggHeight = heights.reduce((a, b) => a + b, 0);
+    const maxHeight = Math.max(...heights);
     let bumpiness = 0;
     for (let x = 1; x < COLS; x++) bumpiness += Math.abs(heights[x] - heights[x - 1]);
-    return lines * 0.76
-         - aggregateHeight * 0.51
-         - holes * 0.46
-         - bumpiness * 0.18;
+    // 井深(兩側都比自己高):深井是只有 I 才能救的危險
+    let wells = 0;
+    for (let x = 0; x < COLS; x++) {
+      const left  = x === 0          ? ROWS : heights[x - 1];
+      const right = x === COLS - 1   ? ROWS : heights[x + 1];
+      const d = Math.max(0, Math.min(left, right) - heights[x]);
+      wells += d * (d + 1) / 2;
+    }
+    // 高度危險區:超過 14 row 額外重罰
+    const heightPanic = Math.max(0, maxHeight - 14);
+    return lines     *  0.80
+         - aggHeight *  0.55
+         - holes     *  1.40
+         - bumpiness *  0.30
+         - wells     *  0.45
+         - heightPanic * 3.00;
   }
 }
 
