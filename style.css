@@ -9,6 +9,8 @@
   --neon-purple: #a020f0;
   --neon-yellow: #fff800;
   --neon-green: #39ff14;
+  --neon-red: #ff3333;
+  --neon-orange: #ff8800;
   --grid-line: rgba(0, 255, 245, 0.08);
 }
 
@@ -17,8 +19,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(ellipse at top, #1a0938 0%, #0d0221 60%, #000 100%);
+  background: radial-gradient(ellipse at top, #1a0938 0%, #0d0221 60%, #000 100%);
   color: var(--neon-cyan);
   font-family: 'VT323', 'Courier New', monospace;
   font-size: 18px;
@@ -27,7 +28,7 @@ body {
   align-items: center;
   padding: 20px;
   image-rendering: pixelated;
-  overflow: hidden;
+  overflow: auto;
   position: relative;
 }
 
@@ -46,8 +47,6 @@ body::before {
   pointer-events: none;
   z-index: 9999;
 }
-
-/* 螢幕邊緣暗角 */
 body::after {
   content: '';
   position: fixed;
@@ -57,25 +56,12 @@ body::after {
   z-index: 9998;
 }
 
-.game-wrap {
-  display: flex;
-  gap: 20px;
-  align-items: flex-start;
-  position: relative;
-  z-index: 1;
-}
+.hidden { display: none !important; }
 
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  width: 180px;
-}
-
-.box {
+/* ===== 共用 Box / 按鈕 ===== */
+.box, .mini-box {
   background: var(--bg-0);
   border: 3px solid var(--neon-cyan);
-  border-radius: 0;
   padding: 12px;
   box-shadow:
     0 0 0 2px var(--bg-0),
@@ -84,8 +70,8 @@ body::after {
     inset 0 0 12px rgba(0, 255, 245, 0.1);
   position: relative;
 }
+.mini-box { padding: 8px; }
 
-/* 像素角落裝飾 */
 .box::before, .box::after {
   content: '';
   position: absolute;
@@ -96,7 +82,7 @@ body::after {
 .box::before { top: -2px; left: -2px; box-shadow: 0 0 8px var(--neon-pink); }
 .box::after { bottom: -2px; right: -2px; box-shadow: 0 0 8px var(--neon-pink); }
 
-.box h3 {
+.box h3, .mini-box h4 {
   margin: 0 0 10px;
   font-family: 'Press Start 2P', monospace;
   font-size: 11px;
@@ -105,13 +91,150 @@ body::after {
   text-align: center;
   text-shadow: 0 0 8px var(--neon-pink), 0 0 2px #fff;
 }
+.mini-box h4 { font-size: 9px; margin-bottom: 6px; }
 
-#hold, #next {
-  display: block;
-  margin: 0 auto;
-  background: #000;
-  border: 2px solid var(--neon-purple);
+button {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  background: var(--bg-0);
+  color: var(--neon-yellow);
+  border: 3px solid var(--neon-yellow);
   border-radius: 0;
+  padding: 12px 14px;
+  cursor: pointer;
+  text-transform: uppercase;
+  text-shadow: 0 0 4px var(--neon-yellow);
+  box-shadow:
+    0 0 0 2px var(--bg-0),
+    0 0 0 4px var(--neon-pink),
+    0 0 12px rgba(255, 248, 0, 0.4);
+  transition: transform 0.05s, background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+button:hover {
+  background: var(--neon-yellow);
+  color: var(--bg-0);
+  text-shadow: none;
+}
+button:active { transform: translate(2px, 2px); }
+
+canvas {
+  display: block;
+  background: #000;
+  image-rendering: pixelated;
+}
+
+/* ===== Screen Overlay (模式選擇 / 結束) ===== */
+.screen-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 2, 33, 0.95);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+}
+.screen-inner {
+  text-align: center;
+  padding: 40px;
+}
+.title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 64px;
+  color: var(--neon-pink);
+  text-shadow:
+    0 0 12px var(--neon-pink),
+    0 0 24px var(--neon-pink),
+    4px 4px 0 var(--neon-cyan),
+    -2px -2px 0 var(--neon-yellow);
+  letter-spacing: 6px;
+  margin: 0 0 16px;
+  animation: glitch 2.5s infinite alternate;
+}
+.subtitle {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 14px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 8px var(--neon-cyan);
+  margin: 0 0 32px;
+  letter-spacing: 2px;
+  animation: blink 1.2s steps(2) infinite;
+}
+.footer-hint {
+  margin-top: 32px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: var(--neon-green);
+  text-shadow: 0 0 4px var(--neon-green);
+  letter-spacing: 1px;
+}
+.mode-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+}
+.mode-buttons button {
+  min-width: 240px;
+  padding: 16px 20px;
+  font-size: 13px;
+}
+
+#overlay-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 28px;
+  color: var(--neon-yellow);
+  text-shadow:
+    0 0 10px var(--neon-yellow),
+    3px 3px 0 var(--neon-pink);
+  margin: 0 0 16px;
+}
+#overlay-text {
+  font-family: 'VT323', monospace;
+  font-size: 24px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 6px var(--neon-cyan);
+  margin: 0 0 24px;
+}
+
+@keyframes glitch {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-2px, 2px); }
+  40% { transform: translate(2px, -2px); }
+  60% { transform: translate(-2px, -2px); }
+  80% { transform: translate(2px, 2px); }
+}
+@keyframes blink {
+  50% { opacity: 0.3; }
+}
+
+/* ===== 單人模式 layout ===== */
+.game-wrap {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 180px;
+}
+
+#board-s {
+  width: 300px;
+  height: 600px;
+  border: 4px solid var(--neon-cyan);
+  box-shadow:
+    0 0 0 2px #000,
+    0 0 0 6px var(--neon-pink),
+    0 0 40px rgba(0, 255, 245, 0.5),
+    0 0 80px rgba(255, 46, 154, 0.3);
+}
+
+#hold-s, #next-s {
+  margin: 0 auto;
+  border: 2px solid var(--neon-purple);
   box-shadow: inset 0 0 12px rgba(160, 32, 240, 0.4);
 }
 
@@ -123,22 +246,19 @@ body::after {
   border-bottom: 2px dashed rgba(0, 255, 245, 0.2);
   font-size: 18px;
 }
-
 .stats div:last-child { border-bottom: none; }
-
 .stats span {
   font-family: 'Press Start 2P', monospace;
   font-size: 9px;
   color: var(--neon-cyan);
   letter-spacing: 1px;
 }
-
 .stats strong {
   font-family: 'Press Start 2P', monospace;
   color: var(--neon-yellow);
   font-size: 14px;
   font-weight: normal;
-  text-shadow: 0 0 6px var(--neon-yellow), 0 0 2px #fff;
+  text-shadow: 0 0 6px var(--neon-yellow);
   font-variant-numeric: tabular-nums;
 }
 
@@ -152,7 +272,6 @@ body::after {
   color: var(--neon-green);
   text-shadow: 0 0 4px var(--neon-green);
 }
-
 .controls li::before {
   content: '> ';
   color: var(--neon-pink);
@@ -164,102 +283,168 @@ body::after {
   gap: 8px;
 }
 
-button {
+/* ===== 雙人對戰 layout ===== */
+.battle-wrap {
+  display: flex;
+  gap: 20px;
+  align-items: stretch;
+  justify-content: center;
+}
+.player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.player-label {
   font-family: 'Press Start 2P', monospace;
-  font-size: 10px;
-  letter-spacing: 1px;
+  font-size: 18px;
+  margin: 0;
+  letter-spacing: 3px;
+  text-shadow: 0 0 10px currentColor, 3px 3px 0 var(--neon-cyan);
+}
+.p1 .player-label { color: var(--neon-pink); }
+.p2 .player-label { color: var(--neon-green); }
+
+.battle-stats {
+  display: flex;
+  gap: 12px;
+  padding: 8px 14px;
   background: var(--bg-0);
+  border: 2px solid var(--neon-cyan);
+  box-shadow: 0 0 12px rgba(0, 255, 245, 0.3);
+}
+.battle-stats div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 70px;
+}
+.battle-stats span {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: var(--neon-cyan);
+  letter-spacing: 1px;
+}
+.battle-stats strong {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 14px;
   color: var(--neon-yellow);
-  border: 3px solid var(--neon-yellow);
-  border-radius: 0;
-  padding: 12px 10px;
-  cursor: pointer;
-  text-transform: uppercase;
-  text-shadow: 0 0 4px var(--neon-yellow);
-  box-shadow:
-    0 0 0 2px var(--bg-0),
-    0 0 0 4px var(--neon-pink),
-    0 0 12px rgba(255, 248, 0, 0.4);
-  transition: transform 0.05s, box-shadow 0.15s, background 0.15s;
-  position: relative;
+  text-shadow: 0 0 6px var(--neon-yellow);
+  margin-top: 4px;
+  font-weight: normal;
+  font-variant-numeric: tabular-nums;
 }
 
-button:hover {
-  background: var(--neon-yellow);
-  color: var(--bg-0);
-  text-shadow: none;
-  box-shadow:
-    0 0 0 2px var(--bg-0),
-    0 0 0 4px var(--neon-pink),
-    0 0 20px var(--neon-yellow);
+.battle-game {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
 }
 
-button:active { transform: translate(2px, 2px); }
-
-.board-wrap {
-  position: relative;
+.mini-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  height: 480px;
 }
 
-#board {
-  background: #000;
-  border: 4px solid var(--neon-cyan);
-  border-radius: 0;
+#board-1, #board-2 {
+  width: 240px;
+  height: 480px;
+  border: 3px solid var(--neon-cyan);
   box-shadow:
     0 0 0 2px #000,
-    0 0 0 6px var(--neon-pink),
-    0 0 40px rgba(0, 255, 245, 0.5),
-    0 0 80px rgba(255, 46, 154, 0.3),
-    inset 0 0 30px rgba(0, 255, 245, 0.1);
-  image-rendering: pixelated;
+    0 0 0 5px var(--neon-pink),
+    0 0 30px rgba(0, 255, 245, 0.4);
 }
 
-.overlay {
+#hold-1, #hold-2, #next-1, #next-2 {
+  border: 2px solid var(--neon-purple);
+  box-shadow: inset 0 0 8px rgba(160, 32, 240, 0.4);
+}
+
+.garbage-bar {
+  width: 18px;
+  flex: 1;
+  background: #000;
+  border: 2px solid var(--neon-red);
+  position: relative;
+  box-shadow: 0 0 10px rgba(255, 51, 51, 0.4);
+  overflow: hidden;
+}
+.garbage-fill {
   position: absolute;
-  inset: 0;
-  background: rgba(13, 2, 33, 0.92);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  border-radius: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 0%;
+  background: linear-gradient(to top,
+    var(--neon-red) 0%,
+    var(--neon-orange) 50%,
+    var(--neon-yellow) 100%);
+  box-shadow: 0 0 12px var(--neon-red);
+  transition: height 0.15s ease-out;
+}
+.garbage-bar.flash {
+  animation: garbage-flash 0.3s ease-out;
+}
+@keyframes garbage-flash {
+  0% { box-shadow: 0 0 30px var(--neon-red), inset 0 0 20px var(--neon-yellow); }
+  100% { box-shadow: 0 0 10px rgba(255, 51, 51, 0.4); }
 }
 
-.overlay.hidden { display: none; }
-
-.overlay-inner {
-  text-align: center;
-  padding: 20px;
-}
-
-.overlay-inner h2 {
-  margin: 0 0 16px;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 22px;
-  color: var(--neon-pink);
-  text-shadow:
-    0 0 10px var(--neon-pink),
-    0 0 20px var(--neon-pink),
-    3px 3px 0 var(--neon-cyan);
-  letter-spacing: 2px;
-  animation: glitch 2s infinite alternate;
-}
-
-@keyframes glitch {
-  0%, 100% { transform: translate(0, 0); }
-  20% { transform: translate(-1px, 1px); }
-  40% { transform: translate(1px, -1px); }
-  60% { transform: translate(-1px, -1px); }
-  80% { transform: translate(1px, 1px); }
-}
-
-.overlay-inner p {
-  margin: 0 0 24px;
+.control-hint {
+  margin: 0;
   font-family: 'VT323', monospace;
-  font-size: 22px;
-  color: var(--neon-cyan);
-  text-shadow: 0 0 6px var(--neon-cyan);
-  animation: blink 1s steps(2) infinite;
+  font-size: 14px;
+  color: var(--neon-green);
+  text-shadow: 0 0 4px var(--neon-green);
+  text-align: center;
+  max-width: 360px;
 }
 
-@keyframes blink {
-  50% { opacity: 0.3; }
+.vs-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 32px;
+  color: var(--neon-yellow);
+  text-shadow:
+    0 0 16px var(--neon-yellow),
+    4px 4px 0 var(--neon-pink);
+  letter-spacing: 4px;
+  padding: 0 8px;
+  animation: vs-pulse 1s ease-in-out infinite alternate;
+}
+@keyframes vs-pulse {
+  from { transform: scale(1); }
+  to { transform: scale(1.1); }
+}
+
+.battle-toolbar {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+/* P2 顏色細節覆寫 — 改用綠色為點綴 */
+.p2 .box::before, .p2 .box::after,
+.p2 .mini-box::before, .p2 .mini-box::after {
+  background: var(--neon-green);
+  box-shadow: 0 0 8px var(--neon-green);
+}
+.p2 .mini-box h4 {
+  color: var(--neon-green);
+  text-shadow: 0 0 8px var(--neon-green);
+}
+
+#battle-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }

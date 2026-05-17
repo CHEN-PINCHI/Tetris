@@ -7,52 +7,143 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="game-wrap">
-    <aside class="panel left-panel">
-      <div class="box">
-        <h3>HOLD</h3>
-        <canvas id="hold" width="120" height="120"></canvas>
-      </div>
-      <div class="box stats">
-        <div><span>分數</span><strong id="score">0</strong></div>
-        <div><span>等級</span><strong id="level">1</strong></div>
-        <div><span>消行</span><strong id="lines">0</strong></div>
-      </div>
-      <div class="box controls">
-        <h3>操作</h3>
-        <ul>
-          <li>← → 移動</li>
-          <li>↓ 軟降</li>
-          <li>↑ 旋轉</li>
-          <li>Space 硬降</li>
-          <li>Shift / C 暫存</li>
-          <li>P 暫停</li>
-          <li>M 靜音</li>
-        </ul>
-      </div>
-    </aside>
 
-    <main class="board-wrap">
-      <canvas id="board" width="300" height="600"></canvas>
-      <div id="overlay" class="overlay">
-        <div class="overlay-inner">
-          <h2 id="overlay-title">準備好了嗎?</h2>
-          <p id="overlay-text">按 Enter 或點擊開始</p>
-          <button id="start-btn">開始遊戲</button>
+  <!-- ===== 模式選擇 ===== -->
+  <div id="mode-select" class="screen-overlay">
+    <div class="screen-inner">
+      <h1 class="title">TETRIS</h1>
+      <p class="subtitle">SELECT MODE</p>
+      <div class="mode-buttons">
+        <button id="btn-single">單人積分</button>
+        <button id="btn-battle">雙人對戰</button>
+      </div>
+      <p class="footer-hint">M 靜音 · P 暫停</p>
+    </div>
+  </div>
+
+  <!-- ===== 單人積分模式 ===== -->
+  <div id="single-layout" class="layout hidden">
+    <div class="game-wrap">
+      <aside class="panel">
+        <div class="box">
+          <h3>HOLD</h3>
+          <canvas id="hold-s" width="120" height="120"></canvas>
         </div>
-      </div>
-    </main>
+        <div class="box stats">
+          <div><span>分數</span><strong id="score-s">0</strong></div>
+          <div><span>等級</span><strong id="level-s">1</strong></div>
+          <div><span>消行</span><strong id="lines-s">0</strong></div>
+        </div>
+        <div class="box controls">
+          <h3>操作</h3>
+          <ul>
+            <li>← → 移動</li>
+            <li>↓ 軟降</li>
+            <li>↑ 旋轉</li>
+            <li>Space 硬降</li>
+            <li>Shift / C 暫存</li>
+            <li>P 暫停</li>
+            <li>M 靜音</li>
+          </ul>
+        </div>
+      </aside>
 
-    <aside class="panel right-panel">
-      <div class="box">
-        <h3>NEXT</h3>
-        <canvas id="next" width="120" height="360"></canvas>
+      <main class="board-wrap">
+        <canvas id="board-s"></canvas>
+      </main>
+
+      <aside class="panel">
+        <div class="box">
+          <h3>NEXT</h3>
+          <canvas id="next-s" width="120" height="360"></canvas>
+        </div>
+        <div class="box toggles">
+          <button data-action="pause">暫停 (P)</button>
+          <button data-action="mute">靜音 (M)</button>
+          <button data-action="back">返回選單</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- ===== 雙人對戰模式 ===== -->
+  <div id="battle-layout" class="layout hidden">
+    <div class="battle-wrap">
+
+      <section class="player p1">
+        <h2 class="player-label">PLAYER 1</h2>
+        <div class="battle-stats">
+          <div><span>SCORE</span><strong id="score-1">0</strong></div>
+          <div><span>LINES</span><strong id="lines-1">0</strong></div>
+        </div>
+        <div class="battle-game">
+          <div class="mini-side">
+            <div class="mini-box">
+              <h4>HOLD</h4>
+              <canvas id="hold-1" width="80" height="80"></canvas>
+            </div>
+            <div class="garbage-bar" title="待落下垃圾">
+              <div class="garbage-fill" id="garbage-1"></div>
+            </div>
+          </div>
+          <canvas id="board-1"></canvas>
+          <div class="mini-side">
+            <div class="mini-box">
+              <h4>NEXT</h4>
+              <canvas id="next-1" width="80" height="240"></canvas>
+            </div>
+          </div>
+        </div>
+        <p class="control-hint">W 旋轉 · A/D 左右 · S 軟降 · Space 硬降 · LShift Hold</p>
+      </section>
+
+      <div class="vs-divider"><span>VS</span></div>
+
+      <section class="player p2">
+        <h2 class="player-label">PLAYER 2</h2>
+        <div class="battle-stats">
+          <div><span>SCORE</span><strong id="score-2">0</strong></div>
+          <div><span>LINES</span><strong id="lines-2">0</strong></div>
+        </div>
+        <div class="battle-game">
+          <div class="mini-side">
+            <div class="mini-box">
+              <h4>HOLD</h4>
+              <canvas id="hold-2" width="80" height="80"></canvas>
+            </div>
+            <div class="garbage-bar" title="待落下垃圾">
+              <div class="garbage-fill" id="garbage-2"></div>
+            </div>
+          </div>
+          <canvas id="board-2"></canvas>
+          <div class="mini-side">
+            <div class="mini-box">
+              <h4>NEXT</h4>
+              <canvas id="next-2" width="80" height="240"></canvas>
+            </div>
+          </div>
+        </div>
+        <p class="control-hint">↑ 旋轉 · ←/→ 左右 · ↓ 軟降 · Enter 硬降 · / Hold</p>
+      </section>
+
+    </div>
+    <div class="battle-toolbar">
+      <button data-action="pause">暫停 (P)</button>
+      <button data-action="mute">靜音 (M)</button>
+      <button data-action="back">返回選單</button>
+    </div>
+  </div>
+
+  <!-- ===== 暫停 / 結束 overlay ===== -->
+  <div id="game-overlay" class="screen-overlay hidden">
+    <div class="screen-inner">
+      <h2 id="overlay-title">遊戲結束</h2>
+      <p id="overlay-text">分數: 0</p>
+      <div class="mode-buttons">
+        <button id="overlay-restart">再來一場</button>
+        <button id="overlay-back">返回選單</button>
       </div>
-      <div class="box toggles">
-        <button id="pause-btn">暫停 (P)</button>
-        <button id="mute-btn">靜音 (M)</button>
-      </div>
-    </aside>
+    </div>
   </div>
 
   <script src="game.js"></script>
