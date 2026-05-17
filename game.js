@@ -61,9 +61,9 @@ const ARR_MS = 40;
 //   lookahead  : 是否評估下一塊(1-step lookahead)
 //   maxLevel   : 限制 AI 的最大等級
 const AI_DIFFICULTIES = {
-  easy:   { name: '簡單', thinkDelay: 350, moveDelay: 140, topRatio: 0.18, useHold: false, lookahead: false, maxLevel: 2 },
-  normal: { name: '一般', thinkDelay: 150, moveDelay: 65,  topRatio: 0.05, useHold: true,  lookahead: true,  maxLevel: 8 },
-  hard:   { name: '困難', thinkDelay: 35,  moveDelay: 22,  topRatio: 0,    useHold: true,  lookahead: true,  maxLevel: 99 },
+  easy:   { name: '簡單', thinkDelay: 350, moveDelay: 140, topRatio: 0.18, useHold: false, lookahead: false, tetrisStyle: false, maxLevel: 2 },
+  normal: { name: '一般', thinkDelay: 150, moveDelay: 65,  topRatio: 0.05, useHold: true,  lookahead: true,  tetrisStyle: false, maxLevel: 8 },
+  hard:   { name: '困難', thinkDelay: 35,  moveDelay: 22,  topRatio: 0,    useHold: true,  lookahead: true,  tetrisStyle: true,  maxLevel: 12 },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -1006,10 +1006,15 @@ class AIController {
       return;
     }
 
-    // 4) 硬降
+    // 4) 硬降 — 必須完整重置狀態,否則 rotationsDone/executedHold 會洩漏到下一塊
     this.game.hardDrop();
     this.plan = null;
     this.lastPiece = this.game.current;
+    this.thinkTimer = 0;
+    this.actionTimer = 0;
+    this.executedHold = false;
+    this.rotationsDone = 0;
+    this.stuckCount = 0;
   }
 
   enumerateForPiece(type, board) {
@@ -1137,8 +1142,11 @@ class AIController {
     return { board: cleaned, cleared, dropY: y };
   }
 
-  // El-Tetris 風近似權重(更重視避免洞)
+  // 評估函式 — tetrisStyle 模式會學高手:預留最右欄當 Tetris 井
   evaluate(board, lines) {
+    const tetrisStyle = this.cfg.tetrisStyle;
+    const WELL_COL = COLS - 1;
+
     const heights = [];
     let holes = 0;
     for (let x = 0; x < COLS; x++) {
@@ -1152,26 +1160,62 @@ class AIController {
       }
       heights.push(topY === -1 ? 0 : ROWS - topY);
     }
-    const aggHeight = heights.reduce((a, b) => a + b, 0);
-    const maxHeight = Math.max(...heights);
+
+    // 非井欄位的高度資訊
+    const playHeights = tetrisStyle
+      ? heights.filter((_, i) => i !== WELL_COL)
+      : heights;
+    const aggHeight = playHeights.reduce((a, b) => a + b, 0);
+    const maxHeight = Math.max(...playHeights);
+
+    // 凹凸度:tetrisStyle 模式跳過井
     let bumpiness = 0;
-    for (let x = 1; x < COLS; x++) bumpiness += Math.abs(heights[x] - heights[x - 1]);
-    // 井深(兩側都比自己高):深井是只有 I 才能救的危險
+    for (let x = 1; x < COLS; x++) {
+      if (tetrisStyle && (x === WELL_COL || x - 1 === WELL_COL)) continue;
+      bumpiness += Math.abs(heights[x] - heights[x - 1]);
+    }
+
+    // 井懲罰(只算「非預留井」的深井)
     let wells = 0;
     for (let x = 0; x < COLS; x++) {
-      const left  = x === 0          ? ROWS : heights[x - 1];
-      const right = x === COLS - 1   ? ROWS : heights[x + 1];
+      if (tetrisStyle && x === WELL_COL) continue;
+      const leftIsWell = tetrisStyle && (x - 1 === WELL_COL);
+      const rightIsWell = tetrisStyle && (x + 1 === WELL_COL);
+      const left  = (x === 0          || leftIsWell)  ? ROWS : heights[x - 1];
+      const right = (x === COLS - 1   || rightIsWell) ? ROWS : heights[x + 1];
       const d = Math.max(0, Math.min(left, right) - heights[x]);
       wells += d * (d + 1) / 2;
     }
-    // 高度危險區:超過 14 row 額外重罰
+
+    // 行得分:tetrisStyle 大幅獎勵 4 行,小清打折
+    let lineScore;
+    if (tetrisStyle) {
+      lineScore = lines === 4 ? 8.0
+                : lines === 0 ? 0
+                : lines * 0.15;  // 1~3 行只給一點點,避免亂消
+    } else {
+      lineScore = lines * 0.80;
+    }
+
+    // Tetris 井獎勵:預留井比其他欄低 0~4 格最理想
+    let wellBonus = 0;
+    if (tetrisStyle) {
+      const otherMax = maxHeight; // 已是非井欄位的最高
+      const depth = otherMax - heights[WELL_COL];
+      if (depth >= 0 && depth <= 4) wellBonus = depth * 0.7;
+      else if (depth > 4)           wellBonus = 4 * 0.7 - (depth - 4) * 0.6;
+      else                          wellBonus = depth * 1.0; // 井被填高反而懲罰
+    }
+
     const heightPanic = Math.max(0, maxHeight - 14);
-    return lines     *  0.80
-         - aggHeight *  0.55
-         - holes     *  1.40
-         - bumpiness *  0.30
-         - wells     *  0.45
-         - heightPanic * 3.00;
+
+    return lineScore
+         - aggHeight   * 0.55
+         - holes       * 1.40
+         - bumpiness   * 0.30
+         - wells       * 0.45
+         - heightPanic * 3.00
+         + wellBonus;
   }
 }
 
