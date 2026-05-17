@@ -38,16 +38,27 @@ const ATTACK_TABLE = [0, 1, 2, 3, 4];
 // 操作對應(用 e.code,跨鍵盤一致)
 const SINGLE_CONTROLS = {
   left: ['ArrowLeft'], right: ['ArrowRight'], down: ['ArrowDown'],
-  rotate: ['ArrowUp', 'KeyX'], hardDrop: ['Space'],
+  rotateCW:  ['ArrowUp', 'KeyX'],
+  rotateCCW: ['KeyZ'],
+  hardDrop: ['Space'],
   hold: ['ShiftLeft', 'ShiftRight', 'KeyC'],
 };
 const P1_CONTROLS = {
   left: ['KeyA'], right: ['KeyD'], down: ['KeyS'],
-  rotate: ['KeyW'], hardDrop: ['Space'], hold: ['ShiftLeft', 'KeyQ'],
+  rotateCW:  ['KeyW'],
+  rotateCCW: ['KeyZ'],
+  hardDrop: ['Space'],
+  hold: ['ShiftLeft', 'KeyQ'],
 };
 const P2_CONTROLS = {
   left: ['ArrowLeft'], right: ['ArrowRight'], down: ['ArrowDown'],
-  rotate: ['ArrowUp'], hardDrop: ['Enter'], hold: ['Slash', 'ShiftRight'],
+  rotateCW:  ['ArrowUp'],
+  rotateCCW: ['Period'],
+  hardDrop: ['Enter'],
+  hold: ['Slash', 'ShiftRight'],
+};
+const EMPTY_CONTROLS = {
+  left: [], right: [], down: [], rotateCW: [], rotateCCW: [], hardDrop: [], hold: [],
 };
 
 const DAS_MS = 150;
@@ -144,12 +155,15 @@ class Game {
     };
   }
 
-  rotateShape(shape) {
+  rotateShape(shape, dir = 1) {
     const n = shape.length;
     const out = Array.from({ length: n }, () => Array(n).fill(0));
-    for (let y = 0; y < n; y++)
-      for (let x = 0; x < n; x++)
-        out[x][n - 1 - y] = shape[y][x];
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        if (dir > 0) out[x][n - 1 - y] = shape[y][x];
+        else out[n - 1 - x][y] = shape[y][x];
+      }
+    }
     return out;
   }
 
@@ -212,9 +226,9 @@ class Game {
     this.lockPiece();
   }
 
-  tryRotate() {
+  tryRotate(dir = 1) {
     if (!this.current || this.gameOver) return;
-    const rotated = this.rotateShape(this.current.shape);
+    const rotated = this.rotateShape(this.current.shape, dir);
     for (const k of [0, -1, 1, -2, 2]) {
       if (!this.collides(this.current, k, 0, rotated)) {
         this.current.shape = rotated;
@@ -903,7 +917,8 @@ class Game {
       this.inputState.downHeld = true;
       return true;
     }
-    if (c.rotate.includes(code)) { this.tryRotate(); return true; }
+    if (c.rotateCW.includes(code))  { this.tryRotate(1);  return true; }
+    if (c.rotateCCW.includes(code)) { this.tryRotate(-1); return true; }
     if (c.hardDrop.includes(code)) { this.hardDrop(); return true; }
     if (c.hold.includes(code)) { this.holdPiece(); return true; }
     return false;
@@ -1260,7 +1275,7 @@ function setupBattlePlayers(opts = {}) {
     scoreId: 'score-2', linesId: 'lines-2',
     garbageFillId: 'garbage-2',
     blockSize: 24, previewSize: 18,
-    controls: opts.aiMode ? { left:[], right:[], down:[], rotate:[], hardDrop:[], hold:[] } : P2_CONTROLS,
+    controls: opts.aiMode ? EMPTY_CONTROLS : P2_CONTROLS,
     onGameOver: (g) => endMatch(g),
   });
   g1.opponent = g2;
@@ -1279,10 +1294,10 @@ function startBattle() {
   // 還原成雙人模式的標籤與按鍵提示
   document.querySelector('.p1 .player-label').textContent = 'PLAYER 1';
   document.querySelector('.p1 .control-hint').textContent =
-    'W 旋轉 · A/D 左右 · S 軟降 · Space 硬降 · LShift Hold';
+    'A/D 左右 · S 軟降 · W 順轉 · Z 反轉 · Space 硬降 · LShift Hold';
   document.querySelector('.p2 .player-label').textContent = 'PLAYER 2';
   document.querySelector('.p2 .control-hint').textContent =
-    '↑ 旋轉 · ←/→ 左右 · ↓ 軟降 · Enter 硬降 · / Hold';
+    '←/→ 左右 · ↓ 軟降 · ↑ 順轉 · . 反轉 · Enter 硬降 · / Hold';
   games = setupBattlePlayers({ aiMode: false });
   beginLoop();
 }
@@ -1299,7 +1314,7 @@ function startCpu(difficulty) {
   // CPU 模式下 P1 用單人模式的方向鍵控制(P2 是 AI 不會搶按鍵)
   document.querySelector('.p1 .player-label').textContent = 'PLAYER 1';
   document.querySelector('.p1 .control-hint').textContent =
-    '← → 移動 · ↓ 軟降 · ↑/X 旋轉 · Space 硬降 · Shift/C Hold';
+    '← → 移動 · ↓ 軟降 · ↑/X 順轉 · Z 反轉 · Space 硬降 · Shift/C Hold';
   document.querySelector('.p2 .player-label').textContent = `CPU · ${diffName}`;
   document.querySelector('.p2 .control-hint').textContent =
     `對手由電腦操作 · 難度:${diffName}`;
