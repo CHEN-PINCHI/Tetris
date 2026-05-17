@@ -1,17 +1,23 @@
-/* ===== Pixel Esports Theme ===== */
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+/* ===== Luxe Neon Theme ===== */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Outfit:wght@300;400;500;600;700&family=Cinzel:wght@600;700&display=swap');
 
 :root {
-  --bg-0: #0d0221;
-  --bg-1: #1a0938;
-  --neon-cyan: #00fff5;
-  --neon-pink: #ff2e9a;
-  --neon-purple: #a020f0;
-  --neon-yellow: #fff800;
-  --neon-green: #39ff14;
-  --neon-red: #ff3333;
-  --neon-orange: #ff8800;
-  --grid-line: rgba(0, 255, 245, 0.08);
+  --bg-deep: #050010;
+  --bg-mid: #14062b;
+  --bg-soft: rgba(38, 14, 70, 0.65);
+  --glass: rgba(255, 255, 255, 0.06);
+  --glass-strong: rgba(255, 255, 255, 0.1);
+  --border-soft: rgba(255, 255, 255, 0.12);
+  --rose: #ff4d8f;
+  --violet: #a78bfa;
+  --cyan: #22d3ee;
+  --gold: #fbbf24;
+  --emerald: #34d399;
+  --crimson: #f43f5e;
+  --text: #f5edff;
+  --text-dim: rgba(245, 237, 255, 0.65);
+  --shadow-glow: 0 12px 40px rgba(167, 139, 250, 0.25),
+                 0 4px 16px rgba(255, 77, 143, 0.15);
 }
 
 * { box-sizing: border-box; }
@@ -19,274 +25,333 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: radial-gradient(ellipse at top, #1a0938 0%, #0d0221 60%, #000 100%);
-  color: var(--neon-cyan);
-  font-family: 'VT323', 'Courier New', monospace;
-  font-size: 18px;
+  font-family: 'Outfit', 'Microsoft JhengHei', sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 20% 10%, rgba(167, 139, 250, 0.18), transparent 45%),
+    radial-gradient(circle at 80% 90%, rgba(255, 77, 143, 0.18), transparent 45%),
+    radial-gradient(circle at 60% 40%, rgba(34, 211, 238, 0.10), transparent 50%),
+    linear-gradient(135deg, #0a0220 0%, #1a0533 50%, #06010f 100%);
+  background-attachment: fixed;
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 20px;
-  image-rendering: pixelated;
+  padding: 24px;
   overflow: auto;
   position: relative;
 }
 
-/* CRT 掃描線 */
+/* 流動的微光斑點背景 */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    rgba(0, 0, 0, 0.15) 0px,
-    rgba(0, 0, 0, 0.15) 1px,
-    transparent 1px,
-    transparent 3px
-  );
+  background:
+    radial-gradient(2px 2px at 20% 30%, rgba(255,255,255,0.5), transparent),
+    radial-gradient(1px 1px at 60% 70%, rgba(167,139,250,0.7), transparent),
+    radial-gradient(1.5px 1.5px at 80% 20%, rgba(255,77,143,0.5), transparent),
+    radial-gradient(1px 1px at 30% 80%, rgba(34,211,238,0.5), transparent);
+  background-size: 400px 400px;
+  opacity: 0.4;
+  animation: starfield 30s linear infinite;
   pointer-events: none;
-  z-index: 9999;
+  z-index: 0;
 }
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.6) 100%);
-  pointer-events: none;
-  z-index: 9998;
+@keyframes starfield {
+  from { transform: translate(0, 0); }
+  to { transform: translate(-400px, -400px); }
 }
 
 .hidden { display: none !important; }
 
-/* ===== 共用 Box / 按鈕 ===== */
+/* ===== 共用 Glass Box ===== */
 .box, .mini-box {
-  background: var(--bg-0);
-  border: 3px solid var(--neon-cyan);
-  padding: 12px;
-  box-shadow:
-    0 0 0 2px var(--bg-0),
-    0 0 0 4px var(--neon-cyan),
-    0 0 20px rgba(0, 255, 245, 0.3),
-    inset 0 0 12px rgba(0, 255, 245, 0.1);
   position: relative;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02)),
+    var(--bg-soft);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow:
+    var(--shadow-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  z-index: 1;
 }
-.mini-box { padding: 8px; }
+.mini-box { padding: 10px; border-radius: 12px; }
 
-.box::before, .box::after {
+/* 漸層描邊光環 */
+.box::before, .mini-box::before {
   content: '';
   position: absolute;
-  width: 8px;
-  height: 8px;
-  background: var(--neon-pink);
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--rose), var(--violet), var(--cyan));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.6;
+  pointer-events: none;
 }
-.box::before { top: -2px; left: -2px; box-shadow: 0 0 8px var(--neon-pink); }
-.box::after { bottom: -2px; right: -2px; box-shadow: 0 0 8px var(--neon-pink); }
 
 .box h3, .mini-box h4 {
-  margin: 0 0 10px;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 11px;
-  letter-spacing: 1px;
-  color: var(--neon-pink);
+  margin: 0 0 12px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--text-dim);
   text-align: center;
-  text-shadow: 0 0 8px var(--neon-pink), 0 0 2px #fff;
+  text-transform: uppercase;
 }
-.mini-box h4 { font-size: 9px; margin-bottom: 6px; }
+.mini-box h4 { font-size: 10px; letter-spacing: 3px; margin-bottom: 8px; }
 
 button {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 10px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
   letter-spacing: 1px;
-  background: var(--bg-0);
-  color: var(--neon-yellow);
-  border: 3px solid var(--neon-yellow);
-  border-radius: 0;
-  padding: 12px 14px;
+  color: var(--text);
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.25), rgba(255, 77, 143, 0.25));
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 12px 22px;
   cursor: pointer;
   text-transform: uppercase;
-  text-shadow: 0 0 4px var(--neon-yellow);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   box-shadow:
-    0 0 0 2px var(--bg-0),
-    0 0 0 4px var(--neon-pink),
-    0 0 12px rgba(255, 248, 0, 0.4);
-  transition: transform 0.05s, background 0.15s, color 0.15s, box-shadow 0.15s;
+    0 6px 20px rgba(167, 139, 250, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: transform 0.2s cubic-bezier(.2,.9,.3,1.2),
+              box-shadow 0.2s, background 0.2s;
 }
 button:hover {
-  background: var(--neon-yellow);
-  color: var(--bg-0);
-  text-shadow: none;
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.55), rgba(255, 77, 143, 0.55));
+  transform: translateY(-2px);
+  box-shadow:
+    0 12px 30px rgba(255, 77, 143, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
-button:active { transform: translate(2px, 2px); }
+button:active { transform: translateY(0); }
 
 canvas {
   display: block;
-  background: #000;
-  image-rendering: pixelated;
+  border-radius: 10px;
 }
 
-/* ===== Screen Overlay (模式選擇 / 結束) ===== */
+/* ===== Screen Overlay ===== */
 .screen-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(13, 2, 33, 0.95);
+  background:
+    radial-gradient(circle at center, rgba(20, 6, 43, 0.85), rgba(5, 0, 16, 0.95));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 100;
+  animation: fade-in 0.4s ease-out;
 }
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .screen-inner {
   text-align: center;
-  padding: 40px;
+  padding: 48px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: 24px;
+  backdrop-filter: blur(20px);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
 }
+.screen-inner::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--rose), var(--violet), var(--cyan), var(--gold));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
 .title {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 64px;
-  color: var(--neon-pink);
-  text-shadow:
-    0 0 12px var(--neon-pink),
-    0 0 24px var(--neon-pink),
-    4px 4px 0 var(--neon-cyan),
-    -2px -2px 0 var(--neon-yellow);
-  letter-spacing: 6px;
-  margin: 0 0 16px;
-  animation: glitch 2.5s infinite alternate;
+  font-family: 'Cinzel', 'Orbitron', serif;
+  font-size: 84px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  letter-spacing: 12px;
+  background: linear-gradient(135deg, #ffd9ec 0%, var(--rose) 25%, var(--violet) 55%, var(--cyan) 85%, #d6f9ff 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 4px 24px rgba(255, 77, 143, 0.4))
+          drop-shadow(0 0 12px rgba(167, 139, 250, 0.4));
+  animation: shimmer 4s ease-in-out infinite;
 }
+@keyframes shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
 .subtitle {
-  font-family: 'Press Start 2P', monospace;
+  font-family: 'Orbitron', sans-serif;
   font-size: 14px;
-  color: var(--neon-cyan);
-  text-shadow: 0 0 8px var(--neon-cyan);
-  margin: 0 0 32px;
-  letter-spacing: 2px;
-  animation: blink 1.2s steps(2) infinite;
+  font-weight: 500;
+  letter-spacing: 8px;
+  color: var(--text-dim);
+  margin: 0 0 36px;
+  text-transform: uppercase;
 }
+
 .footer-hint {
-  margin-top: 32px;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
-  color: var(--neon-green);
-  text-shadow: 0 0 4px var(--neon-green);
-  letter-spacing: 1px;
+  margin-top: 36px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  text-transform: uppercase;
 }
+
 .mode-buttons {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   align-items: center;
 }
 .mode-buttons button {
-  min-width: 240px;
-  padding: 16px 20px;
-  font-size: 13px;
+  min-width: 280px;
+  padding: 18px 24px;
+  font-size: 15px;
+  letter-spacing: 3px;
 }
 
 #overlay-title {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 28px;
-  color: var(--neon-yellow);
-  text-shadow:
-    0 0 10px var(--neon-yellow),
-    3px 3px 0 var(--neon-pink);
+  font-family: 'Cinzel', serif;
+  font-size: 42px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--gold), var(--rose), var(--violet));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 4px 16px rgba(251, 191, 36, 0.4));
   margin: 0 0 16px;
+  letter-spacing: 4px;
 }
 #overlay-text {
-  font-family: 'VT323', monospace;
-  font-size: 24px;
-  color: var(--neon-cyan);
-  text-shadow: 0 0 6px var(--neon-cyan);
-  margin: 0 0 24px;
-}
-
-@keyframes glitch {
-  0%, 100% { transform: translate(0, 0); }
-  20% { transform: translate(-2px, 2px); }
-  40% { transform: translate(2px, -2px); }
-  60% { transform: translate(-2px, -2px); }
-  80% { transform: translate(2px, 2px); }
-}
-@keyframes blink {
-  50% { opacity: 0.3; }
+  font-family: 'Outfit', sans-serif;
+  font-size: 20px;
+  color: var(--text-dim);
+  margin: 0 0 28px;
+  letter-spacing: 1px;
 }
 
 /* ===== 單人模式 layout ===== */
 .game-wrap {
   display: flex;
-  gap: 20px;
+  gap: 24px;
   align-items: flex-start;
+  position: relative;
+  z-index: 1;
 }
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  width: 180px;
+  gap: 18px;
+  width: 200px;
 }
 
 #board-s {
   width: 300px;
   height: 600px;
-  border: 4px solid var(--neon-cyan);
+  border-radius: 14px;
   box-shadow:
-    0 0 0 2px #000,
-    0 0 0 6px var(--neon-pink),
-    0 0 40px rgba(0, 255, 245, 0.5),
-    0 0 80px rgba(255, 46, 154, 0.3);
+    0 20px 60px rgba(167, 139, 250, 0.35),
+    0 8px 24px rgba(255, 77, 143, 0.25),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 #hold-s, #next-s {
   margin: 0 auto;
-  border: 2px solid var(--neon-purple);
-  box-shadow: inset 0 0 12px rgba(160, 32, 240, 0.4);
+  border-radius: 8px;
+  box-shadow: inset 0 0 12px rgba(167, 139, 250, 0.2);
 }
 
 .stats div {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 8px 4px;
-  border-bottom: 2px dashed rgba(0, 255, 245, 0.2);
-  font-size: 18px;
+  align-items: baseline;
+  padding: 10px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 .stats div:last-child { border-bottom: none; }
 .stats span {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 9px;
-  color: var(--neon-cyan);
-  letter-spacing: 1px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-dim);
+  letter-spacing: 3px;
+  text-transform: uppercase;
 }
 .stats strong {
-  font-family: 'Press Start 2P', monospace;
-  color: var(--neon-yellow);
-  font-size: 14px;
-  font-weight: normal;
-  text-shadow: 0 0 6px var(--neon-yellow);
+  font-family: 'Outfit', sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--gold), #fde68a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   font-variant-numeric: tabular-nums;
+  filter: drop-shadow(0 2px 8px rgba(251, 191, 36, 0.3));
 }
 
 .controls ul {
   margin: 0;
   padding: 0;
   list-style: none;
-  font-family: 'VT323', monospace;
-  font-size: 17px;
-  line-height: 1.5;
-  color: var(--neon-green);
-  text-shadow: 0 0 4px var(--neon-green);
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  line-height: 2;
+  color: var(--text-dim);
 }
 .controls li::before {
-  content: '> ';
-  color: var(--neon-pink);
+  content: '◆ ';
+  color: var(--rose);
+  font-size: 10px;
+  margin-right: 4px;
 }
 
 .toggles {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 /* ===== 雙人對戰 layout ===== */
+#battle-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 1;
+}
 .battle-wrap {
   display: flex;
-  gap: 20px;
+  gap: 24px;
   align-items: stretch;
   justify-content: center;
 }
@@ -294,59 +359,78 @@ canvas {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .player-label {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 18px;
+  font-family: 'Cinzel', serif;
+  font-size: 24px;
+  font-weight: 700;
   margin: 0;
-  letter-spacing: 3px;
-  text-shadow: 0 0 10px currentColor, 3px 3px 0 var(--neon-cyan);
+  letter-spacing: 6px;
+  text-transform: uppercase;
 }
-.p1 .player-label { color: var(--neon-pink); }
-.p2 .player-label { color: var(--neon-green); }
+.p1 .player-label {
+  background: linear-gradient(135deg, var(--rose), var(--gold));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 12px rgba(255, 77, 143, 0.5));
+}
+.p2 .player-label {
+  background: linear-gradient(135deg, var(--cyan), var(--emerald));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 12px rgba(34, 211, 238, 0.5));
+}
 
 .battle-stats {
   display: flex;
-  gap: 12px;
-  padding: 8px 14px;
-  background: var(--bg-0);
-  border: 2px solid var(--neon-cyan);
-  box-shadow: 0 0 12px rgba(0, 255, 245, 0.3);
+  gap: 16px;
+  padding: 12px 20px;
+  background: var(--bg-soft);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255,255,255,0.1);
 }
 .battle-stats div {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 70px;
+  min-width: 80px;
 }
 .battle-stats span {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
-  color: var(--neon-cyan);
-  letter-spacing: 1px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-dim);
+  letter-spacing: 3px;
+  text-transform: uppercase;
 }
 .battle-stats strong {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 14px;
-  color: var(--neon-yellow);
-  text-shadow: 0 0 6px var(--neon-yellow);
+  font-family: 'Outfit', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
   margin-top: 4px;
-  font-weight: normal;
+  background: linear-gradient(135deg, var(--gold), #fde68a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   font-variant-numeric: tabular-nums;
 }
 
 .battle-game {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: flex-start;
 }
 
 .mini-side {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
   height: 480px;
 }
@@ -354,25 +438,36 @@ canvas {
 #board-1, #board-2 {
   width: 240px;
   height: 480px;
-  border: 3px solid var(--neon-cyan);
+  border-radius: 12px;
   box-shadow:
-    0 0 0 2px #000,
-    0 0 0 5px var(--neon-pink),
-    0 0 30px rgba(0, 255, 245, 0.4);
+    0 16px 50px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.p1 #board-1 {
+  box-shadow:
+    0 16px 50px rgba(255, 77, 143, 0.3),
+    0 0 0 1px rgba(255, 77, 143, 0.3);
+}
+.p2 #board-2 {
+  box-shadow:
+    0 16px 50px rgba(34, 211, 238, 0.3),
+    0 0 0 1px rgba(34, 211, 238, 0.3);
 }
 
 #hold-1, #hold-2, #next-1, #next-2 {
-  border: 2px solid var(--neon-purple);
-  box-shadow: inset 0 0 8px rgba(160, 32, 240, 0.4);
+  border-radius: 6px;
 }
 
 .garbage-bar {
-  width: 18px;
+  width: 20px;
   flex: 1;
-  background: #000;
-  border: 2px solid var(--neon-red);
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  border-radius: 10px;
   position: relative;
-  box-shadow: 0 0 10px rgba(255, 51, 51, 0.4);
+  box-shadow:
+    0 4px 16px rgba(244, 63, 94, 0.2),
+    inset 0 0 8px rgba(0, 0, 0, 0.6);
   overflow: hidden;
 }
 .garbage-fill {
@@ -382,69 +477,56 @@ canvas {
   width: 100%;
   height: 0%;
   background: linear-gradient(to top,
-    var(--neon-red) 0%,
-    var(--neon-orange) 50%,
-    var(--neon-yellow) 100%);
-  box-shadow: 0 0 12px var(--neon-red);
-  transition: height 0.15s ease-out;
+    var(--crimson) 0%,
+    #fb923c 50%,
+    var(--gold) 100%);
+  box-shadow: 0 0 16px rgba(244, 63, 94, 0.6);
+  transition: height 0.2s cubic-bezier(.2,.9,.3,1.2);
+  border-radius: 8px;
 }
 .garbage-bar.flash {
-  animation: garbage-flash 0.3s ease-out;
+  animation: garbage-flash 0.4s ease-out;
 }
 @keyframes garbage-flash {
-  0% { box-shadow: 0 0 30px var(--neon-red), inset 0 0 20px var(--neon-yellow); }
-  100% { box-shadow: 0 0 10px rgba(255, 51, 51, 0.4); }
+  0% { box-shadow: 0 0 40px var(--gold), inset 0 0 30px var(--gold); border-color: var(--gold); }
+  100% { box-shadow: 0 4px 16px rgba(244, 63, 94, 0.2), inset 0 0 8px rgba(0,0,0,0.6); }
 }
 
 .control-hint {
   margin: 0;
-  font-family: 'VT323', monospace;
-  font-size: 14px;
-  color: var(--neon-green);
-  text-shadow: 0 0 4px var(--neon-green);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  color: var(--text-dim);
   text-align: center;
-  max-width: 360px;
+  max-width: 380px;
+  letter-spacing: 0.5px;
+  line-height: 1.6;
 }
 
 .vs-divider {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 32px;
-  color: var(--neon-yellow);
-  text-shadow:
-    0 0 16px var(--neon-yellow),
-    4px 4px 0 var(--neon-pink);
-  letter-spacing: 4px;
-  padding: 0 8px;
-  animation: vs-pulse 1s ease-in-out infinite alternate;
+  font-family: 'Cinzel', serif;
+  font-size: 56px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  padding: 0 16px;
+  background: linear-gradient(135deg, var(--gold), var(--rose), var(--violet));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 4px 20px rgba(251, 191, 36, 0.5));
+  animation: vs-pulse 1.4s ease-in-out infinite alternate;
 }
 @keyframes vs-pulse {
-  from { transform: scale(1); }
-  to { transform: scale(1.1); }
+  from { transform: scale(1); filter: drop-shadow(0 4px 20px rgba(251, 191, 36, 0.4)); }
+  to   { transform: scale(1.08); filter: drop-shadow(0 4px 32px rgba(255, 77, 143, 0.7)); }
 }
 
 .battle-toolbar {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   justify-content: center;
-  margin-top: 20px;
-}
-
-/* P2 顏色細節覆寫 — 改用綠色為點綴 */
-.p2 .box::before, .p2 .box::after,
-.p2 .mini-box::before, .p2 .mini-box::after {
-  background: var(--neon-green);
-  box-shadow: 0 0 8px var(--neon-green);
-}
-.p2 .mini-box h4 {
-  color: var(--neon-green);
-  text-shadow: 0 0 8px var(--neon-green);
-}
-
-#battle-layout {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  margin-top: 24px;
 }

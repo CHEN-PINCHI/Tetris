@@ -12,10 +12,16 @@ const SHAPES = {
   L: [[0,0,1],[1,1,1],[0,0,0]],
 };
 
+// 每個方塊有 light/mid/dark 漸層三色,用於華麗風格的立體填充
 const COLORS = {
-  I: '#00f0f0', O: '#f0f000', T: '#a020f0',
-  S: '#39ff14', Z: '#ff3333', J: '#3050ff', L: '#ff8800',
-  G: '#5a5a6a', // 垃圾方塊
+  I: { mid: '#22d3ee', light: '#a5f3fc', dark: '#0e7490' },
+  O: { mid: '#facc15', light: '#fef3c7', dark: '#a16207' },
+  T: { mid: '#c026d3', light: '#f0abfc', dark: '#86198f' },
+  S: { mid: '#4ade80', light: '#bbf7d0', dark: '#15803d' },
+  Z: { mid: '#f43f5e', light: '#fda4af', dark: '#9f1239' },
+  J: { mid: '#6366f1', light: '#c7d2fe', dark: '#3730a3' },
+  L: { mid: '#fb923c', light: '#fed7aa', dark: '#c2410c' },
+  G: { mid: '#71717a', light: '#a1a1aa', dark: '#3f3f46' },
 };
 
 const TYPES = Object.keys(SHAPES);
@@ -25,9 +31,9 @@ const DROP_INTERVAL = [
   80,  80,  80,  70,  70,  70,  50,  50,  50,  30,
 ];
 
-// Tetris Battle 風攻擊表:消行數 → 送出的垃圾行數
-//   1 行: 0   2 行: 1   3 行: 2   4 行 (Tetris): 4
-const ATTACK_TABLE = [0, 0, 1, 2, 4];
+// 攻擊表:消行數 → 送出的垃圾行數
+//   1 行: 1   2 行: 2   3 行: 3   4 行 (Tetris): 4
+const ATTACK_TABLE = [0, 1, 2, 3, 4];
 
 // 操作對應(用 e.code,跨鍵盤一致)
 const SINGLE_CONTROLS = {
@@ -95,6 +101,8 @@ class Game {
     this.pendingGap = -1;
     this.gameOver = false;
     this.current = null;
+    this.effects = [];
+    this.shake = 0;
     this.next = this.makePiece(this.nextType());
     this.spawn();
     this.updateStats();
@@ -182,9 +190,12 @@ class Game {
     if (!this.current || this.gameOver) return;
     let dist = 0;
     while (!this.collides(this.current, 0, dist + 1)) dist++;
+    const startY = this.current.y;
     this.current.y += dist;
     this.score += dist * 2;
     Audio.play('drop');
+    if (dist > 0) this.spawnDropEffect(this.current, startY, this.current.y);
+    this.shake = Math.min(8, 2 + dist * 0.3);
     this.lockPiece();
   }
 
@@ -230,21 +241,26 @@ class Game {
   }
 
   clearLines() {
-    let cleared = 0;
+    // 先掃出要消的行,生特效再移除
+    const fullRows = [];
     for (let y = ROWS - 1; y >= 0; y--) {
-      if (this.board[y].every(c => c)) {
+      if (this.board[y].every(c => c)) fullRows.push(y);
+    }
+    const cleared = fullRows.length;
+    if (cleared > 0) {
+      for (const y of fullRows) this.spawnLineClearEffect(y, this.board[y]);
+      // 由大到小移除以免索引位移
+      fullRows.sort((a, b) => b - a);
+      for (const y of fullRows) {
         this.board.splice(y, 1);
         this.board.unshift(Array(COLS).fill(0));
-        cleared++;
-        y++;
       }
-    }
-    if (cleared > 0) {
       const points = [0, 100, 300, 500, 800][cleared] * this.level;
       this.score += points;
       this.lines += cleared;
       this.level = Math.floor(this.lines / 10) + 1;
       Audio.play(cleared === 4 ? 'tetris' : 'clear');
+      this.shake = Math.min(12, 3 + cleared * 1.5);
       this.updateStats();
     }
     return cleared;
@@ -315,34 +331,241 @@ class Game {
     this.updateGarbageBar();
   }
 
-  // ====== 繪圖 ======
-  drawPixelBlock(ctx, px, py, size, color, alpha = 1) {
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(px, py, size, size);
-    ctx.fillStyle = color;
-    ctx.fillRect(px + 2, py + 2, size - 4, size - 4);
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    ctx.fillRect(px + 2, py + 2, size - 4, 2);
-    ctx.fillRect(px + 2, py + 2, 2, size - 4);
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.fillRect(px + 2, py + size - 4, size - 4, 2);
-    ctx.fillRect(px + size - 4, py + 2, 2, size - 4);
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.fillRect(px + size / 2 - 2, py + size / 2 - 2, 4, 4);
+  // ====== 特效 ======
+  spawnParticle(x, y, color, opts = {}) {
+    this.effects.push({
+      kind: 'particle',
+      x, y,
+      vx: (Math.random() - 0.5) * (opts.spread || 6),
+      vy: (opts.vy0 ?? -1) - Math.random() * (opts.upScale || 4),
+      gravity: opts.gravity ?? 0.35,
+      color,
+      size: opts.size || 3 + Math.random() * 2,
+      life: 0,
+      maxLife: opts.maxLife || 700,
+      kind2: opts.kind2 || 'circle',
+    });
+  }
+
+  spawnDropEffect(piece, fromY, toY) {
+    // 對佔據的每個欄位畫一條垂直殘影軌跡
+    const cols = new Set();
+    for (let y = 0; y < piece.shape.length; y++)
+      for (let x = 0; x < piece.shape[y].length; x++)
+        if (piece.shape[y][x]) cols.add(piece.x + x);
+    this.effects.push({
+      kind: 'dropTrail',
+      cols: [...cols],
+      fromY, toY,
+      pieceType: piece.type,
+      life: 0,
+      maxLife: 350,
+    });
+    // 落地噴粒子
+    const c = COLORS[piece.type];
+    for (let y = 0; y < piece.shape.length; y++) {
+      for (let x = 0; x < piece.shape[y].length; x++) {
+        if (!piece.shape[y][x]) continue;
+        // 只在該方塊「下緣是底/有其他方塊」時噴(視覺上才合理)
+        const below = piece.y + y + 1;
+        const isBottom =
+          y + 1 >= piece.shape.length ||
+          !piece.shape[y + 1][x];
+        if (!isBottom) continue;
+        const absX = piece.x + x;
+        const baseY = (piece.y + y + 1) * this.blockSize;
+        for (let i = 0; i < 5; i++) {
+          this.spawnParticle(
+            (absX + Math.random()) * this.blockSize,
+            baseY,
+            i % 2 ? c.light : c.mid,
+            { spread: 5, upScale: 5, gravity: 0.4, size: 2 + Math.random() * 2, maxLife: 500 }
+          );
+        }
+      }
+    }
+  }
+
+  spawnLineClearEffect(rowIdx, rowCells) {
+    // 整行白光閃爍
+    this.effects.push({
+      kind: 'rowFlash',
+      row: rowIdx,
+      life: 0,
+      maxLife: 280,
+    });
+    // 每格炸出粒子
+    for (let x = 0; x < COLS; x++) {
+      const t = rowCells[x];
+      if (!t) continue;
+      const c = COLORS[t];
+      const cx = (x + 0.5) * this.blockSize;
+      const cy = (rowIdx + 0.5) * this.blockSize;
+      // 主色粒子
+      for (let i = 0; i < 6; i++) {
+        this.spawnParticle(cx, cy, i % 2 ? c.light : c.mid, {
+          spread: 10, upScale: 6, gravity: 0.5,
+          size: 3 + Math.random() * 3, maxLife: 800,
+        });
+      }
+      // 白色火花
+      for (let i = 0; i < 3; i++) {
+        this.spawnParticle(cx, cy, '#ffffff', {
+          spread: 14, upScale: 8, gravity: 0.6,
+          size: 2 + Math.random() * 2, maxLife: 600, kind2: 'spark',
+        });
+      }
+    }
+  }
+
+  updateEffects(delta) {
+    const dt = delta / 16; // 以 60fps 為基準
+    this.effects = this.effects.filter(e => {
+      e.life += delta;
+      if (e.life >= e.maxLife) return false;
+      if (e.kind === 'particle') {
+        e.x += e.vx * dt;
+        e.y += e.vy * dt;
+        e.vy += e.gravity * dt;
+      }
+      return true;
+    });
+    if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 0.6);
+  }
+
+  drawEffects(filter) {
+    const ctx = this.boardCtx;
+    for (const e of this.effects) {
+      if (e.kind !== filter) continue;
+      const t = e.life / e.maxLife;
+      if (e.kind === 'particle') {
+        const a = 1 - t;
+        ctx.globalAlpha = a;
+        ctx.fillStyle = e.color;
+        if (e.kind2 === 'spark') {
+          // 細長方形火花
+          const s = e.size * (1 - t * 0.4);
+          ctx.fillRect(e.x - s / 2, e.y - s / 2, s, s);
+          ctx.shadowColor = e.color;
+          ctx.shadowBlur = 8;
+          ctx.fillRect(e.x - s / 2, e.y - s / 2, s, s);
+          ctx.shadowBlur = 0;
+        } else {
+          ctx.beginPath();
+          ctx.arc(e.x, e.y, e.size * (1 - t * 0.5), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else if (e.kind === 'rowFlash') {
+        const a = (1 - t) * 0.9;
+        const y = e.row * this.blockSize;
+        const h = this.blockSize;
+        const grad = ctx.createLinearGradient(0, y, this.boardCanvas.width, y);
+        grad.addColorStop(0, 'rgba(255,255,255,0)');
+        grad.addColorStop(0.5, `rgba(255,255,255,${a})`);
+        grad.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, y, this.boardCanvas.width, h);
+        // 中線亮帶
+        ctx.fillStyle = `rgba(255,255,255,${a * 0.6})`;
+        ctx.fillRect(0, y + h * 0.45, this.boardCanvas.width, h * 0.1);
+      } else if (e.kind === 'dropTrail') {
+        const a = (1 - t) * 0.55;
+        const c = COLORS[e.pieceType];
+        const startY = e.fromY * this.blockSize;
+        const endY = e.toY * this.blockSize;
+        for (const col of e.cols) {
+          const px = col * this.blockSize;
+          const grad = ctx.createLinearGradient(0, startY, 0, endY);
+          grad.addColorStop(0, 'rgba(255,255,255,0)');
+          grad.addColorStop(0.7, c.mid);
+          grad.addColorStop(1, c.light);
+          ctx.globalAlpha = a;
+          ctx.fillStyle = grad;
+          ctx.fillRect(px + 3, startY, this.blockSize - 6, endY - startY);
+          // 中央發光細線
+          ctx.fillStyle = `rgba(255,255,255,${a * 0.8})`;
+          ctx.fillRect(px + this.blockSize / 2 - 1, startY, 2, endY - startY);
+        }
+      }
+    }
     ctx.globalAlpha = 1;
   }
 
+  // ====== 繪圖 ======
+  // 華麗風方塊:漸層立體 + 圓角 + 鏡面高光
+  drawGemBlock(ctx, px, py, size, type, alpha = 1) {
+    const c = COLORS[type];
+    const r = Math.max(2, size * 0.18);
+    const inset = 1;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // 圓角矩形路徑
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(px + inset, py + inset, size - inset * 2, size - inset * 2, r);
+    } else {
+      const x0 = px + inset, y0 = py + inset, w = size - inset * 2, h = size - inset * 2;
+      ctx.moveTo(x0 + r, y0);
+      ctx.arcTo(x0 + w, y0, x0 + w, y0 + h, r);
+      ctx.arcTo(x0 + w, y0 + h, x0, y0 + h, r);
+      ctx.arcTo(x0, y0 + h, x0, y0, r);
+      ctx.arcTo(x0, y0, x0 + w, y0, r);
+      ctx.closePath();
+    }
+
+    // 主漸層(上亮 → 中色 → 下暗)
+    const grad = ctx.createLinearGradient(px, py, px, py + size);
+    grad.addColorStop(0, c.light);
+    grad.addColorStop(0.45, c.mid);
+    grad.addColorStop(1, c.dark);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // 邊緣外光
+    ctx.strokeStyle = c.light;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 左上反光(玻璃感)
+    const shine = ctx.createRadialGradient(
+      px + size * 0.3, py + size * 0.25, 0,
+      px + size * 0.3, py + size * 0.25, size * 0.55
+    );
+    shine.addColorStop(0, 'rgba(255,255,255,0.55)');
+    shine.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = shine;
+    ctx.fill();
+
+    // 底部高光線(陶瓷釉感)
+    ctx.beginPath();
+    ctx.moveTo(px + size * 0.2, py + size * 0.78);
+    ctx.quadraticCurveTo(px + size * 0.5, py + size * 0.92, px + size * 0.8, py + size * 0.78);
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
   drawCell(x, y, type, alpha = 1) {
-    this.drawPixelBlock(this.boardCtx, x * this.blockSize, y * this.blockSize,
-                        this.blockSize, COLORS[type], alpha);
+    this.drawGemBlock(this.boardCtx, x * this.blockSize, y * this.blockSize,
+                      this.blockSize, type, alpha);
   }
 
   drawBoard() {
     const ctx = this.boardCtx;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, this.boardCanvas.width, this.boardCanvas.height);
-    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    const W = this.boardCanvas.width;
+    const H = this.boardCanvas.height;
+    // 漸層底
+    const bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H));
+    bg.addColorStop(0, '#1a0b2e');
+    bg.addColorStop(1, '#06010f');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    // 細格
+    ctx.strokeStyle = 'rgba(180,160,255,0.06)';
+    ctx.lineWidth = 1;
     for (let x = 0; x <= COLS; x++) {
       ctx.beginPath();
       ctx.moveTo(x * this.blockSize, 0);
@@ -395,7 +618,7 @@ class Game {
     for (let y = 0; y < shape.length; y++) {
       for (let x = 0; x < shape[y].length; x++) {
         if (shape[y][x]) {
-          this.drawPixelBlock(ctx, ox + x * size, oy + y * size, size, COLORS[type]);
+          this.drawGemBlock(ctx, ox + x * size, oy + y * size, size, type);
         }
       }
     }
@@ -403,7 +626,10 @@ class Game {
 
   drawNext() {
     const ctx = this.nextCtx;
-    ctx.fillStyle = '#000';
+    const bg = ctx.createLinearGradient(0, 0, 0, this.nextCanvas.height);
+    bg.addColorStop(0, '#1a0b2e');
+    bg.addColorStop(1, '#0d0420');
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, this.nextCanvas.width, this.nextCanvas.height);
     const slotH = this.nextCanvas.height / 3;
     this.drawPreviewPiece(ctx, this.next.type, 5);
@@ -415,7 +641,10 @@ class Game {
 
   drawHold() {
     const ctx = this.holdCtx;
-    ctx.fillStyle = '#000';
+    const bg = ctx.createLinearGradient(0, 0, 0, this.holdCanvas.height);
+    bg.addColorStop(0, '#1a0b2e');
+    bg.addColorStop(1, '#0d0420');
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, this.holdCanvas.width, this.holdCanvas.height);
     if (!this.held) return;
     const shape = SHAPES[this.held];
@@ -428,16 +657,27 @@ class Game {
     for (let y = 0; y < shape.length; y++) {
       for (let x = 0; x < shape[y].length; x++) {
         if (shape[y][x]) {
-          this.drawPixelBlock(ctx, ox + x * size, oy + y * size, size, COLORS[this.held], alpha);
+          this.drawGemBlock(ctx, ox + x * size, oy + y * size, size, this.held, alpha);
         }
       }
     }
   }
 
   draw() {
+    const ctx = this.boardCtx;
+    ctx.save();
+    if (this.shake > 0) {
+      const dx = (Math.random() - 0.5) * this.shake * 2;
+      const dy = (Math.random() - 0.5) * this.shake * 2;
+      ctx.translate(dx, dy);
+    }
     this.drawBoard();
     this.drawGhost();
+    this.drawEffects('dropTrail');
     this.drawPiece();
+    this.drawEffects('rowFlash');
+    this.drawEffects('particle');
+    ctx.restore();
     this.drawNext();
     this.drawHold();
   }
@@ -455,6 +695,7 @@ class Game {
   }
 
   tick(delta) {
+    this.updateEffects(delta);
     if (this.gameOver) return;
     this.dropTimer += delta;
     const interval = DROP_INTERVAL[Math.min(this.level - 1, DROP_INTERVAL.length - 1)];
