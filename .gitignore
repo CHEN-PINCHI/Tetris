@@ -1,0 +1,17 @@
+# Claude Code 本地設定
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 編輯器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 日誌
+*.log

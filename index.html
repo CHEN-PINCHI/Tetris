@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>俄羅斯方塊 Tetris</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="game-wrap">
+    <aside class="panel left-panel">
+      <div class="box">
+        <h3>HOLD</h3>
+        <canvas id="hold" width="120" height="120"></canvas>
+      </div>
+      <div class="box stats">
+        <div><span>分數</span><strong id="score">0</strong></div>
+        <div><span>等級</span><strong id="level">1</strong></div>
+        <div><span>消行</span><strong id="lines">0</strong></div>
+      </div>
+      <div class="box controls">
+        <h3>操作</h3>
+        <ul>
+          <li>← → 移動</li>
+          <li>↓ 軟降</li>
+          <li>↑ 旋轉</li>
+          <li>Space 硬降</li>
+          <li>Shift / C 暫存</li>
+          <li>P 暫停</li>
+          <li>M 靜音</li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="board-wrap">
+      <canvas id="board" width="300" height="600"></canvas>
+      <div id="overlay" class="overlay">
+        <div class="overlay-inner">
+          <h2 id="overlay-title">準備好了嗎?</h2>
+          <p id="overlay-text">按 Enter 或點擊開始</p>
+          <button id="start-btn">開始遊戲</button>
+        </div>
+      </div>
+    </main>
+
+    <aside class="panel right-panel">
+      <div class="box">
+        <h3>NEXT</h3>
+        <canvas id="next" width="120" height="360"></canvas>
+      </div>
+      <div class="box toggles">
+        <button id="pause-btn">暫停 (P)</button>
+        <button id="mute-btn">靜音 (M)</button>
+      </div>
+    </aside>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
