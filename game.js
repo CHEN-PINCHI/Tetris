@@ -241,26 +241,45 @@ class Game {
   }
 
   clearLines() {
-    // 先掃出要消的行,生特效再移除
+    // 先收集滿行(原 y 位置用於生特效)
     const fullRows = [];
-    for (let y = ROWS - 1; y >= 0; y--) {
+    for (let y = 0; y < ROWS; y++) {
       if (this.board[y].every(c => c)) fullRows.push(y);
     }
     const cleared = fullRows.length;
     if (cleared > 0) {
-      for (const y of fullRows) this.spawnLineClearEffect(y, this.board[y]);
-      // 由大到小移除以免索引位移
-      fullRows.sort((a, b) => b - a);
-      for (const y of fullRows) {
-        this.board.splice(y, 1);
-        this.board.unshift(Array(COLS).fill(0));
-      }
+      for (const y of fullRows) this.spawnLineClearEffect(y, this.board[y].slice());
+      // 重建 board:過濾非滿行,前方補等量空行
+      const remaining = this.board.filter(row => !row.every(c => c));
+      const newBoard = [];
+      for (let i = 0; i < cleared; i++) newBoard.push(Array(COLS).fill(0));
+      newBoard.push(...remaining);
+      this.board = newBoard;
+
       const points = [0, 100, 300, 500, 800][cleared] * this.level;
       this.score += points;
       this.lines += cleared;
       this.level = Math.floor(this.lines / 10) + 1;
       Audio.play(cleared === 4 ? 'tetris' : 'clear');
-      this.shake = Math.min(12, 3 + cleared * 1.5);
+      this.shake = Math.min(14, 3 + cleared * 1.8);
+
+      // 大型文字飛字
+      const centerX = this.boardCanvas.width / 2;
+      const centerY = (fullRows[0] + fullRows[fullRows.length - 1] + 1) / 2 * this.blockSize;
+      this.spawnClearText(cleared, centerX, centerY);
+      this.spawnScorePopup(points, centerX, centerY - this.blockSize);
+
+      // Tetris 額外效果:全板閃光 + 閃電
+      if (cleared === 4) {
+        this.effects.push({ kind: 'boardFlash', life: 0, maxLife: 400 });
+        this.spawnLightning(6);
+      }
+
+      // 連消提示
+      if (this.combo + 1 >= 2) {
+        this.spawnComboText(this.combo + 1, centerX, centerY + this.blockSize * 1.2);
+      }
+
       this.updateStats();
     }
     return cleared;
@@ -386,33 +405,101 @@ class Game {
     }
   }
 
+  spawnClearText(cleared, x, y) {
+    const presets = {
+      1: { text: 'SINGLE',  gradient: ['#a5f3fc', '#22d3ee', '#0e7490'], glow: '#22d3ee', size: 1.5 },
+      2: { text: 'DOUBLE',  gradient: ['#c7d2fe', '#a78bfa', '#6d28d9'], glow: '#a78bfa', size: 1.6 },
+      3: { text: 'TRIPLE',  gradient: ['#fda4af', '#f43f5e', '#9f1239'], glow: '#f43f5e', size: 1.7 },
+      4: { text: 'TETRIS!', gradient: ['#fef3c7', '#fbbf24', '#f43f5e', '#a78bfa', '#22d3ee'], glow: '#fbbf24', size: 2.0 },
+    };
+    const p = presets[cleared];
+    if (!p) return;
+    this.effects.push({
+      kind: 'textBurst', text: p.text,
+      x, y, fontSize: this.blockSize * p.size,
+      gradient: p.gradient, glow: p.glow,
+      startScale: 0.3, endScale: 1.0,
+      weight: 900, outline: 5, outlineColor: 'rgba(0,0,0,0.85)',
+      rise: 24,
+      life: 0, maxLife: cleared === 4 ? 1500 : 1100,
+    });
+  }
+
+  spawnScorePopup(points, x, y) {
+    if (points <= 0) return;
+    this.effects.push({
+      kind: 'textBurst', text: `+${points}`,
+      x, y, fontSize: this.blockSize * 0.9,
+      color: '#fde68a', glow: '#fbbf24',
+      startScale: 0.4, endScale: 1.0,
+      weight: 700, outline: 3, outlineColor: 'rgba(0,0,0,0.7)',
+      rise: 60,
+      life: 0, maxLife: 900,
+    });
+  }
+
+  spawnComboText(n, x, y) {
+    this.effects.push({
+      kind: 'textBurst', text: `COMBO ×${n}`,
+      x, y, fontSize: this.blockSize * 0.75,
+      color: '#fda4af', glow: '#f43f5e',
+      startScale: 0.5, endScale: 1.0,
+      weight: 700, outline: 3, outlineColor: 'rgba(0,0,0,0.7)',
+      rise: 40,
+      life: 0, maxLife: 1000,
+    });
+  }
+
+  spawnLightning(count) {
+    const W = this.boardCanvas.width;
+    const H = this.boardCanvas.height;
+    for (let i = 0; i < count; i++) {
+      const pts = [{ x: Math.random() * W, y: 0 }];
+      let y = 0;
+      while (y < H) {
+        y += 12 + Math.random() * 22;
+        const dx = (Math.random() - 0.5) * 36;
+        pts.push({ x: Math.max(2, Math.min(W - 2, pts[pts.length - 1].x + dx)), y });
+      }
+      this.effects.push({
+        kind: 'lightning', points: pts,
+        life: 0, maxLife: 220 + Math.random() * 180,
+      });
+    }
+  }
+
   spawnLineClearEffect(rowIdx, rowCells) {
-    // 整行白光閃爍
     this.effects.push({
       kind: 'rowFlash',
       row: rowIdx,
       life: 0,
-      maxLife: 280,
+      maxLife: 320,
     });
-    // 每格炸出粒子
     for (let x = 0; x < COLS; x++) {
       const t = rowCells[x];
       if (!t) continue;
       const c = COLORS[t];
       const cx = (x + 0.5) * this.blockSize;
       const cy = (rowIdx + 0.5) * this.blockSize;
-      // 主色粒子
-      for (let i = 0; i < 6; i++) {
+      // 主色粒子(加量)
+      for (let i = 0; i < 10; i++) {
         this.spawnParticle(cx, cy, i % 2 ? c.light : c.mid, {
-          spread: 10, upScale: 6, gravity: 0.5,
-          size: 3 + Math.random() * 3, maxLife: 800,
+          spread: 12, upScale: 8, gravity: 0.45,
+          size: 3 + Math.random() * 4, maxLife: 850,
         });
       }
       // 白色火花
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 5; i++) {
         this.spawnParticle(cx, cy, '#ffffff', {
-          spread: 14, upScale: 8, gravity: 0.6,
-          size: 2 + Math.random() * 2, maxLife: 600, kind2: 'spark',
+          spread: 16, upScale: 10, gravity: 0.55,
+          size: 2 + Math.random() * 3, maxLife: 700, kind2: 'spark',
+        });
+      }
+      // 金色火星
+      for (let i = 0; i < 3; i++) {
+        this.spawnParticle(cx, cy, '#fde68a', {
+          spread: 18, upScale: 12, gravity: 0.5,
+          size: 2 + Math.random() * 2, maxLife: 900, kind2: 'spark',
         });
       }
     }
@@ -482,10 +569,71 @@ class Game {
           ctx.globalAlpha = a;
           ctx.fillStyle = grad;
           ctx.fillRect(px + 3, startY, this.blockSize - 6, endY - startY);
-          // 中央發光細線
           ctx.fillStyle = `rgba(255,255,255,${a * 0.8})`;
           ctx.fillRect(px + this.blockSize / 2 - 1, startY, 2, endY - startY);
         }
+      } else if (e.kind === 'boardFlash') {
+        const a = (1 - t) * 0.65;
+        ctx.globalAlpha = a;
+        const grad = ctx.createRadialGradient(
+          this.boardCanvas.width / 2, this.boardCanvas.height / 2, 0,
+          this.boardCanvas.width / 2, this.boardCanvas.height / 2,
+          Math.max(this.boardCanvas.width, this.boardCanvas.height)
+        );
+        grad.addColorStop(0, 'rgba(255,255,255,1)');
+        grad.addColorStop(0.6, 'rgba(255,200,255,0.6)');
+        grad.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, this.boardCanvas.width, this.boardCanvas.height);
+      } else if (e.kind === 'lightning') {
+        const flash = t < 0.15 ? t / 0.15 : Math.max(0, 1 - (t - 0.15) / 0.85);
+        ctx.globalAlpha = flash;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 3;
+        ctx.shadowColor = '#a78bfa';
+        ctx.shadowBlur = 18;
+        ctx.beginPath();
+        ctx.moveTo(e.points[0].x, e.points[0].y);
+        for (let i = 1; i < e.points.length; i++) ctx.lineTo(e.points[i].x, e.points[i].y);
+        ctx.stroke();
+        // 外層紫色光暈
+        ctx.strokeStyle = 'rgba(167,139,250,0.6)';
+        ctx.lineWidth = 8;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      } else if (e.kind === 'textBurst') {
+        const popT = Math.min(1, t * 5);
+        const scale = e.startScale + (1 - Math.pow(1 - popT, 3)) * (e.endScale - e.startScale);
+        const a = t < 0.75 ? 1 : Math.max(0, (1 - t) * 4);
+        const ty = e.y - (e.rise || 0) * t;
+        ctx.save();
+        ctx.translate(e.x, ty);
+        ctx.scale(scale, scale);
+        ctx.globalAlpha = a;
+        ctx.font = `${e.weight || 900} ${e.fontSize}px Orbitron, "Microsoft JhengHei", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        ctx.miterLimit = 2;
+        if (e.outline) {
+          ctx.lineWidth = e.outline;
+          ctx.strokeStyle = e.outlineColor || '#000';
+          ctx.strokeText(e.text, 0, 0);
+        }
+        if (e.glow) {
+          ctx.shadowColor = e.glow;
+          ctx.shadowBlur = 28;
+        }
+        if (e.gradient) {
+          const grad = ctx.createLinearGradient(0, -e.fontSize / 2, 0, e.fontSize / 2);
+          e.gradient.forEach((color, i) => grad.addColorStop(i / (e.gradient.length - 1), color));
+          ctx.fillStyle = grad;
+        } else {
+          ctx.fillStyle = e.color || '#fff';
+        }
+        ctx.fillText(e.text, 0, 0);
+        ctx.shadowBlur = 0;
+        ctx.restore();
       }
     }
     ctx.globalAlpha = 1;
@@ -676,7 +824,10 @@ class Game {
     this.drawEffects('dropTrail');
     this.drawPiece();
     this.drawEffects('rowFlash');
+    this.drawEffects('boardFlash');
+    this.drawEffects('lightning');
     this.drawEffects('particle');
+    this.drawEffects('textBurst');
     ctx.restore();
     this.drawNext();
     this.drawHold();

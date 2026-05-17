@@ -82,19 +82,25 @@ body::before {
 }
 .mini-box { padding: 10px; border-radius: 12px; }
 
-/* 漸層描邊光環 */
+/* 漸層描邊光環(色相緩慢流動) */
 .box::before, .mini-box::before {
   content: '';
   position: absolute;
   inset: -1px;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, var(--rose), var(--violet), var(--cyan));
+  background: linear-gradient(135deg, var(--rose), var(--gold), var(--violet), var(--cyan), var(--emerald), var(--rose));
+  background-size: 300% 300%;
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  opacity: 0.6;
+  opacity: 0.7;
   pointer-events: none;
+  animation: border-flow 8s linear infinite;
+}
+@keyframes border-flow {
+  0% { background-position: 0% 0%; }
+  100% { background-position: 300% 300%; }
 }
 
 .box h3, .mini-box h4 {
@@ -110,12 +116,14 @@ body::before {
 .mini-box h4 { font-size: 10px; letter-spacing: 3px; margin-bottom: 8px; }
 
 button {
+  position: relative;
+  overflow: hidden;
   font-family: 'Outfit', sans-serif;
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 1px;
   color: var(--text);
-  background: linear-gradient(135deg, rgba(167, 139, 250, 0.25), rgba(255, 77, 143, 0.25));
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.28), rgba(255, 77, 143, 0.28));
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 12px;
   padding: 12px 22px;
@@ -124,18 +132,34 @@ button {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   box-shadow:
-    0 6px 20px rgba(167, 139, 250, 0.25),
+    0 6px 20px rgba(167, 139, 250, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
   transition: transform 0.2s cubic-bezier(.2,.9,.3,1.2),
               box-shadow 0.2s, background 0.2s;
 }
+button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -120%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(120deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    transparent 100%);
+  transform: skewX(-20deg);
+  transition: left 0.6s ease;
+}
 button:hover {
-  background: linear-gradient(135deg, rgba(167, 139, 250, 0.55), rgba(255, 77, 143, 0.55));
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.6), rgba(255, 77, 143, 0.6));
   transform: translateY(-2px);
   box-shadow:
-    0 12px 30px rgba(255, 77, 143, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    0 14px 36px rgba(255, 77, 143, 0.5),
+    0 0 28px rgba(167, 139, 250, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
+button:hover::before { left: 220%; }
 button:active { transform: translateY(0); }
 
 canvas {
@@ -190,22 +214,47 @@ canvas {
 
 .title {
   font-family: 'Cinzel', 'Orbitron', serif;
-  font-size: 84px;
+  font-size: 96px;
   font-weight: 700;
   margin: 0 0 12px;
-  letter-spacing: 12px;
-  background: linear-gradient(135deg, #ffd9ec 0%, var(--rose) 25%, var(--violet) 55%, var(--cyan) 85%, #d6f9ff 100%);
-  background-size: 200% 200%;
+  letter-spacing: 14px;
+  background: linear-gradient(135deg,
+    #ffd9ec 0%, var(--rose) 20%, var(--gold) 35%,
+    var(--violet) 55%, var(--cyan) 75%, var(--emerald) 90%, #ffd9ec 100%);
+  background-size: 300% 300%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  filter: drop-shadow(0 4px 24px rgba(255, 77, 143, 0.4))
-          drop-shadow(0 0 12px rgba(167, 139, 250, 0.4));
-  animation: shimmer 4s ease-in-out infinite;
+  filter: drop-shadow(0 4px 24px rgba(255, 77, 143, 0.5))
+          drop-shadow(0 0 16px rgba(167, 139, 250, 0.5))
+          drop-shadow(0 0 8px rgba(34, 211, 238, 0.4));
+  animation: shimmer 3s ease-in-out infinite, hue-shift 8s linear infinite;
+  position: relative;
+}
+.title::after {
+  content: 'TETRIS';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.95) 50%, transparent 70%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shine 3.5s ease-in-out infinite;
+  pointer-events: none;
 }
 @keyframes shimmer {
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
+}
+@keyframes hue-shift {
+  from { filter: drop-shadow(0 4px 24px rgba(255, 77, 143, 0.5)) drop-shadow(0 0 16px rgba(167, 139, 250, 0.5)) hue-rotate(0deg); }
+  to   { filter: drop-shadow(0 4px 24px rgba(255, 77, 143, 0.5)) drop-shadow(0 0 16px rgba(167, 139, 250, 0.5)) hue-rotate(360deg); }
+}
+@keyframes shine {
+  0% { background-position: 200% 0; }
+  60% { background-position: -100% 0; }
+  100% { background-position: -100% 0; }
 }
 
 .subtitle {
