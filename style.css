@@ -283,10 +283,54 @@ canvas {
   align-items: center;
 }
 .mode-buttons button {
-  min-width: 280px;
+  min-width: 320px;
   padding: 18px 24px;
   font-size: 15px;
   letter-spacing: 3px;
+}
+
+.diff-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diff-btn .diff-label {
+  font-family: 'Cinzel', serif;
+  font-size: 22px;
+  letter-spacing: 8px;
+  font-weight: 700;
+}
+.diff-btn .diff-desc {
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  text-transform: none;
+}
+.diff-btn[data-diff="easy"] {
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.25), rgba(34, 211, 238, 0.25));
+  border-color: rgba(52, 211, 153, 0.5);
+}
+.diff-btn[data-diff="easy"]:hover {
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.6), rgba(34, 211, 238, 0.6));
+  box-shadow: 0 14px 36px rgba(52, 211, 153, 0.5), 0 0 28px rgba(34, 211, 238, 0.5);
+}
+.diff-btn[data-diff="normal"] {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.25), rgba(251, 146, 60, 0.25));
+  border-color: rgba(251, 191, 36, 0.5);
+}
+.diff-btn[data-diff="normal"]:hover {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.6), rgba(251, 146, 60, 0.6));
+  box-shadow: 0 14px 36px rgba(251, 191, 36, 0.5), 0 0 28px rgba(251, 146, 60, 0.5);
+}
+.diff-btn[data-diff="hard"] {
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.25), rgba(167, 139, 250, 0.25));
+  border-color: rgba(244, 63, 94, 0.5);
+}
+.diff-btn[data-diff="hard"]:hover {
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.6), rgba(167, 139, 250, 0.6));
+  box-shadow: 0 14px 36px rgba(244, 63, 94, 0.5), 0 0 28px rgba(167, 139, 250, 0.5);
 }
 
 #overlay-title {

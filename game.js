@@ -53,6 +53,18 @@ const P2_CONTROLS = {
 const DAS_MS = 150;
 const ARR_MS = 40;
 
+// AI 難度設定
+//   thinkDelay : 出現新方塊到開始動作的延遲 (ms)
+//   moveDelay  : 每個按鍵動作之間的間隔 (ms)
+//   topRatio   : 從前 N% 的候選位置中隨機挑(0=永遠最佳)
+//   useHold    : 是否會用 Hold
+//   maxLevel   : 限制 AI 的最大等級(避免太快壓垮 Easy AI)
+const AI_DIFFICULTIES = {
+  easy:   { name: '簡單', thinkDelay: 420, moveDelay: 180, topRatio: 0.45, useHold: false, maxLevel: 1 },
+  normal: { name: '一般', thinkDelay: 200, moveDelay: 90,  topRatio: 0.15, useHold: true,  maxLevel: 5 },
+  hard:   { name: '困難', thinkDelay: 70,  moveDelay: 40,  topRatio: 0.04, useHold: true,  maxLevel: 99 },
+};
+
 const $ = (id) => document.getElementById(id);
 
 // ====== Game 類別 ======
@@ -904,9 +916,215 @@ class Game {
   }
 }
 
+// ====== AI 控制器 ======
+class AIController {
+  constructor(game, difficulty) {
+    this.game = game;
+    this.difficulty = difficulty;
+    this.cfg = AI_DIFFICULTIES[difficulty];
+    this.reset();
+  }
+
+  reset() {
+    this.plan = null;
+    this.lastPiece = null;
+    this.thinkTimer = 0;
+    this.actionTimer = 0;
+    this.executedHold = false;
+    this.rotationsDone = 0;
+    this.stuckCount = 0;
+  }
+
+  tick(delta) {
+    if (this.game.gameOver || !this.game.current) return;
+
+    // 等級封頂
+    if (this.cfg.maxLevel && this.game.level > this.cfg.maxLevel) {
+      this.game.level = this.cfg.maxLevel;
+    }
+
+    // 偵測新方塊(每塊重新規劃)
+    if (this.game.current !== this.lastPiece) {
+      this.lastPiece = this.game.current;
+      this.plan = null;
+      this.thinkTimer = 0;
+      this.actionTimer = 0;
+      this.executedHold = false;
+      this.rotationsDone = 0;
+      this.stuckCount = 0;
+    }
+
+    if (!this.plan) {
+      this.thinkTimer += delta;
+      if (this.thinkTimer >= this.cfg.thinkDelay) {
+        this.plan = this.computeBestPlacement();
+        if (!this.plan) this.game.hardDrop();
+      }
+      return;
+    }
+
+    this.actionTimer += delta;
+    if (this.actionTimer < this.cfg.moveDelay) return;
+    this.actionTimer = 0;
+
+    // 1) Hold
+    if (this.plan.fromHold && !this.executedHold) {
+      this.game.holdPiece();
+      this.executedHold = true;
+      this.lastPiece = this.game.current;
+      this.rotationsDone = 0;
+      this.stuckCount = 0;
+      return;
+    }
+
+    // 2) 旋轉到目標方向
+    if (this.rotationsDone < this.plan.rotation) {
+      const before = this.game.current.shape;
+      this.game.tryRotate();
+      if (this.game.current.shape === before) {
+        this.stuckCount++;
+        if (this.stuckCount > 3) { this.game.hardDrop(); this.plan = null; }
+      } else {
+        this.rotationsDone++;
+        this.stuckCount = 0;
+      }
+      return;
+    }
+
+    // 3) 移動到目標 x
+    const cx = this.game.current.x;
+    if (cx !== this.plan.x) {
+      const dir = cx < this.plan.x ? 1 : -1;
+      this.game.move(dir);
+      if (this.game.current.x === cx) {
+        this.stuckCount++;
+        if (this.stuckCount > 3) { this.game.hardDrop(); this.plan = null; }
+      } else {
+        this.stuckCount = 0;
+      }
+      return;
+    }
+
+    // 4) 硬降
+    this.game.hardDrop();
+    this.plan = null;
+    this.lastPiece = this.game.current;
+  }
+
+  computeBestPlacement() {
+    const candidates = [];
+    const tryType = (type, fromHold) => {
+      let shape = SHAPES[type].map(r => r.slice());
+      const seen = new Set();
+      for (let rot = 0; rot < 4; rot++) {
+        const key = shape.map(r => r.join('')).join('|');
+        if (!seen.has(key)) {
+          seen.add(key);
+          for (let x = -2; x <= COLS + 2; x++) {
+            const result = this.tryPlace(shape, x);
+            if (result) {
+              const score = this.evaluate(result.board, result.cleared);
+              candidates.push({ type, fromHold, rotation: rot, x, score });
+            }
+          }
+        }
+        shape = this.rotateShape(shape);
+      }
+    };
+
+    tryType(this.game.current.type, false);
+    if (this.cfg.useHold) {
+      const holdType = this.game.held || (this.game.next && this.game.next.type);
+      if (holdType && holdType !== this.game.current.type) {
+        tryType(holdType, true);
+      }
+    }
+
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => b.score - a.score);
+    const topK = Math.max(1, Math.floor(candidates.length * this.cfg.topRatio));
+    return candidates[Math.floor(Math.random() * topK)];
+  }
+
+  rotateShape(shape) {
+    const n = shape.length;
+    const out = Array.from({ length: n }, () => Array(n).fill(0));
+    for (let y = 0; y < n; y++)
+      for (let x = 0; x < n; x++)
+        out[x][n - 1 - y] = shape[y][x];
+    return out;
+  }
+
+  collidesAt(board, shape, ox, oy) {
+    for (let y = 0; y < shape.length; y++) {
+      for (let x = 0; x < shape[y].length; x++) {
+        if (!shape[y][x]) continue;
+        const nx = ox + x;
+        const ny = oy + y;
+        if (nx < 0 || nx >= COLS) return true;
+        if (ny >= ROWS) return true;
+        if (ny >= 0 && board[ny][nx]) return true;
+      }
+    }
+    return false;
+  }
+
+  tryPlace(shape, x) {
+    const board = this.game.board;
+    let y = -shape.length;
+    if (this.collidesAt(board, shape, x, y)) return null;
+    while (!this.collidesAt(board, shape, x, y + 1)) y++;
+    const newBoard = board.map(r => r.slice());
+    for (let py = 0; py < shape.length; py++) {
+      for (let px = 0; px < shape[py].length; px++) {
+        if (shape[py][px]) {
+          const ny = y + py;
+          const nx = x + px;
+          if (ny < 0) return null;
+          if (nx < 0 || nx >= COLS || ny >= ROWS) return null;
+          newBoard[ny][nx] = 'X';
+        }
+      }
+    }
+    let cleared = 0;
+    const cleaned = newBoard.filter(row => {
+      if (row.every(c => c)) { cleared++; return false; }
+      return true;
+    });
+    while (cleaned.length < ROWS) cleaned.unshift(Array(COLS).fill(0));
+    return { board: cleaned, cleared, dropY: y };
+  }
+
+  // Dellacherie 風近似權重
+  evaluate(board, lines) {
+    const heights = [];
+    let holes = 0;
+    for (let x = 0; x < COLS; x++) {
+      let topY = -1;
+      for (let y = 0; y < ROWS; y++) {
+        if (board[y][x]) {
+          if (topY === -1) topY = y;
+        } else if (topY !== -1) {
+          holes++;
+        }
+      }
+      heights.push(topY === -1 ? 0 : ROWS - topY);
+    }
+    const aggregateHeight = heights.reduce((a, b) => a + b, 0);
+    let bumpiness = 0;
+    for (let x = 1; x < COLS; x++) bumpiness += Math.abs(heights[x] - heights[x - 1]);
+    return lines * 0.76
+         - aggregateHeight * 0.51
+         - holes * 0.46
+         - bumpiness * 0.18;
+  }
+}
+
 // ====== 控制器 ======
-let mode = null;          // 'single' | 'battle'
+let mode = null;          // 'single' | 'battle' | 'cpu'
+let cpuDifficulty = null; // 'easy' | 'normal' | 'hard'
 let games = [];
+let cpuAI = null;
 let running = false;
 let paused = false;
 let muted = false;
@@ -929,12 +1147,7 @@ function startSingle() {
   beginLoop();
 }
 
-function startBattle() {
-  mode = 'battle';
-  $('mode-select').classList.add('hidden');
-  $('single-layout').classList.add('hidden');
-  $('battle-layout').classList.remove('hidden');
-  $('game-overlay').classList.add('hidden');
+function setupBattlePlayers(opts = {}) {
   const g1 = new Game({
     boardId: 'board-1', nextId: 'next-1', holdId: 'hold-1',
     scoreId: 'score-1', linesId: 'lines-1',
@@ -948,12 +1161,44 @@ function startBattle() {
     scoreId: 'score-2', linesId: 'lines-2',
     garbageFillId: 'garbage-2',
     blockSize: 24, previewSize: 18,
-    controls: P2_CONTROLS,
+    controls: opts.aiMode ? { left:[], right:[], down:[], rotate:[], hardDrop:[], hold:[] } : P2_CONTROLS,
     onGameOver: (g) => endMatch(g),
   });
   g1.opponent = g2;
   g2.opponent = g1;
-  games = [g1, g2];
+  return [g1, g2];
+}
+
+function startBattle() {
+  mode = 'battle';
+  cpuAI = null;
+  $('mode-select').classList.add('hidden');
+  $('cpu-select').classList.add('hidden');
+  $('single-layout').classList.add('hidden');
+  $('battle-layout').classList.remove('hidden');
+  $('game-overlay').classList.add('hidden');
+  // 還原成雙人模式的標籤
+  document.querySelector('.p2 .player-label').textContent = 'PLAYER 2';
+  document.querySelector('.p2 .control-hint').textContent =
+    '↑ 旋轉 · ←/→ 左右 · ↓ 軟降 · Enter 硬降 · / Hold';
+  games = setupBattlePlayers({ aiMode: false });
+  beginLoop();
+}
+
+function startCpu(difficulty) {
+  mode = 'cpu';
+  cpuDifficulty = difficulty;
+  $('mode-select').classList.add('hidden');
+  $('cpu-select').classList.add('hidden');
+  $('single-layout').classList.add('hidden');
+  $('battle-layout').classList.remove('hidden');
+  $('game-overlay').classList.add('hidden');
+  const diffName = AI_DIFFICULTIES[difficulty].name;
+  document.querySelector('.p2 .player-label').textContent = `CPU · ${diffName}`;
+  document.querySelector('.p2 .control-hint').textContent =
+    `對手由電腦操作 · 難度:${diffName}`;
+  games = setupBattlePlayers({ aiMode: true });
+  cpuAI = new AIController(games[1], difficulty);
   beginLoop();
 }
 
@@ -973,6 +1218,7 @@ function mainLoop(time) {
   lastTime = time;
   if (!paused) {
     for (const g of games) g.tick(delta);
+    if (cpuAI) cpuAI.tick(delta);
   }
   for (const g of games) g.draw();
   rafId = requestAnimationFrame(mainLoop);
@@ -988,6 +1234,13 @@ function endMatch(loser) {
   if (mode === 'single') {
     title.textContent = 'GAME OVER';
     text.textContent = `分數: ${games[0].score}  消行: ${games[0].lines}`;
+  } else if (mode === 'cpu') {
+    const youWin = loser === games[1];
+    const diffName = AI_DIFFICULTIES[cpuDifficulty].name;
+    title.textContent = youWin ? 'YOU WIN!' : `CPU WIN`;
+    text.textContent = youWin
+      ? `擊敗 ${diffName} CPU · 你 ${games[0].score} 分,對手 ${games[1].score}`
+      : `不敵 ${diffName} CPU · 你 ${games[0].score} 分,對手 ${games[1].score}`;
   } else {
     const winner = loser === games[0] ? games[1] : games[0];
     const winnerLabel = winner === games[0] ? 'PLAYER 1' : 'PLAYER 2';
@@ -1024,15 +1277,18 @@ function backToMenu() {
   cancelAnimationFrame(rafId);
   Audio.stopBgm();
   games = [];
+  cpuAI = null;
   $('single-layout').classList.add('hidden');
   $('battle-layout').classList.add('hidden');
   $('game-overlay').classList.add('hidden');
+  $('cpu-select').classList.add('hidden');
   $('mode-select').classList.remove('hidden');
 }
 
 function restartMatch() {
   if (mode === 'single') startSingle();
   else if (mode === 'battle') startBattle();
+  else if (mode === 'cpu') startCpu(cpuDifficulty);
   else backToMenu();
 }
 
@@ -1065,6 +1321,17 @@ document.addEventListener('keyup', (e) => {
 // ====== 按鈕綁定 ======
 $('btn-single').addEventListener('click', startSingle);
 $('btn-battle').addEventListener('click', startBattle);
+$('btn-cpu').addEventListener('click', () => {
+  $('mode-select').classList.add('hidden');
+  $('cpu-select').classList.remove('hidden');
+});
+$('cpu-back').addEventListener('click', () => {
+  $('cpu-select').classList.add('hidden');
+  $('mode-select').classList.remove('hidden');
+});
+document.querySelectorAll('.diff-btn').forEach(btn => {
+  btn.addEventListener('click', () => startCpu(btn.dataset.diff));
+});
 $('overlay-restart').addEventListener('click', restartMatch);
 $('overlay-back').addEventListener('click', backToMenu);
 

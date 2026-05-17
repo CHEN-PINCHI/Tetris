@@ -16,8 +16,34 @@
       <div class="mode-buttons">
         <button id="btn-single">單人積分</button>
         <button id="btn-battle">雙人對戰</button>
+        <button id="btn-cpu">人機對戰</button>
       </div>
       <p class="footer-hint">M 靜音 · P 暫停</p>
+    </div>
+  </div>
+
+  <!-- ===== CPU 難度選擇 ===== -->
+  <div id="cpu-select" class="screen-overlay hidden">
+    <div class="screen-inner">
+      <h1 class="title" style="font-size: 64px; letter-spacing: 10px;">難度</h1>
+      <p class="subtitle">SELECT DIFFICULTY</p>
+      <div class="mode-buttons">
+        <button class="diff-btn" data-diff="easy">
+          <span class="diff-label">簡單</span>
+          <span class="diff-desc">慢思考 · 常失誤 · 等級鎖 1</span>
+        </button>
+        <button class="diff-btn" data-diff="normal">
+          <span class="diff-label">一般</span>
+          <span class="diff-desc">中等反應 · 偶爾失誤 · 等級鎖 5</span>
+        </button>
+        <button class="diff-btn" data-diff="hard">
+          <span class="diff-label">困難</span>
+          <span class="diff-desc">秒思考 · 幾乎最佳解 · 不封頂</span>
+        </button>
+      </div>
+      <div style="margin-top: 24px;">
+        <button id="cpu-back">返回</button>
+      </div>
     </div>
   </div>
 
