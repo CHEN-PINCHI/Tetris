@@ -1252,7 +1252,7 @@ function setupBattlePlayers(opts = {}) {
     scoreId: 'score-1', linesId: 'lines-1',
     garbageFillId: 'garbage-1',
     blockSize: 24, previewSize: 18,
-    controls: P1_CONTROLS,
+    controls: opts.p1Controls || P1_CONTROLS,
     onGameOver: (g) => endMatch(g),
   });
   const g2 = new Game({
@@ -1276,7 +1276,10 @@ function startBattle() {
   $('single-layout').classList.add('hidden');
   $('battle-layout').classList.remove('hidden');
   $('game-overlay').classList.add('hidden');
-  // 還原成雙人模式的標籤
+  // 還原成雙人模式的標籤與按鍵提示
+  document.querySelector('.p1 .player-label').textContent = 'PLAYER 1';
+  document.querySelector('.p1 .control-hint').textContent =
+    'W 旋轉 · A/D 左右 · S 軟降 · Space 硬降 · LShift Hold';
   document.querySelector('.p2 .player-label').textContent = 'PLAYER 2';
   document.querySelector('.p2 .control-hint').textContent =
     '↑ 旋轉 · ←/→ 左右 · ↓ 軟降 · Enter 硬降 · / Hold';
@@ -1293,10 +1296,14 @@ function startCpu(difficulty) {
   $('battle-layout').classList.remove('hidden');
   $('game-overlay').classList.add('hidden');
   const diffName = AI_DIFFICULTIES[difficulty].name;
+  // CPU 模式下 P1 用單人模式的方向鍵控制(P2 是 AI 不會搶按鍵)
+  document.querySelector('.p1 .player-label').textContent = 'PLAYER 1';
+  document.querySelector('.p1 .control-hint').textContent =
+    '← → 移動 · ↓ 軟降 · ↑/X 旋轉 · Space 硬降 · Shift/C Hold';
   document.querySelector('.p2 .player-label').textContent = `CPU · ${diffName}`;
   document.querySelector('.p2 .control-hint').textContent =
     `對手由電腦操作 · 難度:${diffName}`;
-  games = setupBattlePlayers({ aiMode: true });
+  games = setupBattlePlayers({ aiMode: true, p1Controls: SINGLE_CONTROLS });
   cpuAI = new AIController(games[1], difficulty);
   beginLoop();
 }
