@@ -17,6 +17,7 @@
         <button id="btn-single">單人積分</button>
         <button id="btn-battle">雙人對戰</button>
         <button id="btn-cpu">人機對戰</button>
+        <button id="btn-online">線上對戰</button>
       </div>
       <p class="footer-hint">M 靜音 · P 暫停</p>
     </div>
@@ -43,6 +44,41 @@
       </div>
       <div style="margin-top: 24px;">
         <button id="cpu-back">返回</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 線上對戰大廳 ===== -->
+  <div id="online-select" class="screen-overlay hidden">
+    <div class="screen-inner">
+      <h1 class="title" style="font-size: 56px; letter-spacing: 10px;">線上對戰</h1>
+      <p class="subtitle">ONLINE BATTLE</p>
+
+      <div id="online-pick" class="mode-buttons">
+        <button id="online-host">建立房間</button>
+        <button id="online-join">加入房間</button>
+      </div>
+
+      <div id="online-host-panel" class="online-panel hidden">
+        <p class="online-hint">把這串房間碼傳給朋友:</p>
+        <div class="room-code-box">
+          <code id="host-code">建立中...</code>
+          <button id="copy-code" type="button">複製</button>
+        </div>
+        <p id="host-status" class="online-status">正在建立房間...</p>
+      </div>
+
+      <div id="online-join-panel" class="online-panel hidden">
+        <p class="online-hint">輸入朋友給你的房間碼:</p>
+        <div class="join-input-row">
+          <input id="join-code" type="text" placeholder="TETRIS-XXXXXX" maxlength="32" autocomplete="off" spellcheck="false" />
+          <button id="join-go" type="button">連線</button>
+        </div>
+        <p id="join-status" class="online-status"></p>
+      </div>
+
+      <div style="margin-top: 24px;">
+        <button id="online-back">返回</button>
       </div>
     </div>
   </div>
@@ -173,6 +209,7 @@
     </div>
   </div>
 
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script src="game.js"></script>
 </body>
 </html>
