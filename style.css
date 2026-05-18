@@ -624,6 +624,45 @@ canvas {
   margin-top: 24px;
 }
 
+/* ===== 倒數 overlay ===== */
+#countdown-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: rgba(5, 0, 16, 0.35);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 200;
+}
+.countdown-number {
+  font-family: 'Cinzel', 'Orbitron', serif;
+  font-size: 220px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  background: linear-gradient(135deg, var(--gold), var(--rose), var(--violet), var(--cyan));
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter:
+    drop-shadow(0 8px 32px rgba(251, 191, 36, 0.5))
+    drop-shadow(0 0 24px rgba(167, 139, 250, 0.6));
+  animation: countdown-pop 1s ease-out;
+}
+.countdown-number.go {
+  font-size: 180px;
+  letter-spacing: 12px;
+}
+@keyframes countdown-pop {
+  0%   { transform: scale(0.4) rotate(-4deg); opacity: 0; }
+  20%  { transform: scale(1.25) rotate(0deg); opacity: 1; }
+  60%  { transform: scale(1.0); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0; }
+}
+
 /* ===== 線上對戰大廳 ===== */
 .online-panel {
   margin-top: 8px;

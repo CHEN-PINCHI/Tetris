@@ -68,6 +68,36 @@ const ARR_MS = 40;
 const LOCK_DELAY = 1000;
 const MAX_LOCK_RESETS = 15;
 
+// ====== SRS (Super Rotation System) wall kick 表 ======
+// 表示「從 rotation 狀態 from 旋轉到 to」時要嘗試的 (dx, dy) kick 偏移
+// 標準 SRS 採 y-up,本專案 y-down,因此 y 已預先反轉
+// rotation 狀態:0 = spawn, 1 = R (順轉一次), 2 = 倒立, 3 = L (反轉一次)
+const KICKS_JLSTZ = {
+  '01': [[0,0], [-1,0], [-1,-1], [0, 2], [-1, 2]],
+  '10': [[0,0], [ 1,0], [ 1, 1], [0,-2], [ 1,-2]],
+  '12': [[0,0], [ 1,0], [ 1, 1], [0,-2], [ 1,-2]],
+  '21': [[0,0], [-1,0], [-1,-1], [0, 2], [-1, 2]],
+  '23': [[0,0], [ 1,0], [ 1,-1], [0, 2], [ 1, 2]],
+  '32': [[0,0], [-1,0], [-1, 1], [0,-2], [-1,-2]],
+  '30': [[0,0], [-1,0], [-1, 1], [0,-2], [-1,-2]],
+  '03': [[0,0], [ 1,0], [ 1,-1], [0, 2], [ 1, 2]],
+};
+const KICKS_I = {
+  '01': [[0,0], [-2,0], [ 1,0], [-2, 1], [ 1,-2]],
+  '10': [[0,0], [ 2,0], [-1,0], [ 2,-1], [-1, 2]],
+  '12': [[0,0], [-1,0], [ 2,0], [-1,-2], [ 2, 1]],
+  '21': [[0,0], [ 1,0], [-2,0], [ 1, 2], [-2,-1]],
+  '23': [[0,0], [ 2,0], [-1,0], [ 2,-1], [-1, 2]],
+  '32': [[0,0], [-2,0], [ 1,0], [-2, 1], [ 1,-2]],
+  '30': [[0,0], [ 1,0], [-2,0], [ 1, 2], [-2,-1]],
+  '03': [[0,0], [-1,0], [ 2,0], [-1,-2], [ 2, 1]],
+};
+function getKickTable(type, from, to) {
+  if (type === 'O') return [[0, 0]];
+  const key = '' + from + to;
+  return type === 'I' ? KICKS_I[key] : KICKS_JLSTZ[key];
+}
+
 // AI 難度設定
 //   thinkDelay : 出現新方塊到開始動作的延遲 (ms)
 //   moveDelay  : 每個按鍵動作之間的間隔 (ms)
@@ -158,6 +188,7 @@ class Game {
       type, shape,
       x: Math.floor((COLS - shape[0].length) / 2),
       y: type === 'I' ? -1 : 0,
+      rotation: 0,
     };
   }
 
@@ -246,11 +277,16 @@ class Game {
 
   tryRotate(dir = 1) {
     if (!this.current || this.gameOver) return;
+    const fromRot = this.current.rotation | 0;
+    const toRot = dir > 0 ? (fromRot + 1) % 4 : (fromRot + 3) % 4;
     const rotated = this.rotateShape(this.current.shape, dir);
-    for (const k of [0, -1, 1, -2, 2]) {
-      if (!this.collides(this.current, k, 0, rotated)) {
+    const kicks = getKickTable(this.current.type, fromRot, toRot);
+    for (const [kx, ky] of kicks) {
+      if (!this.collides(this.current, kx, ky, rotated)) {
         this.current.shape = rotated;
-        this.current.x += k;
+        this.current.x += kx;
+        this.current.y += ky;
+        this.current.rotation = toRot;
         this.resetLockIfGrounded();
         Audio.play('rotate');
         return;
@@ -1388,6 +1424,7 @@ class RemoteGame extends Game {
         shape: s.current.shape,
         x: s.current.x,
         y: s.current.y,
+        rotation: s.current.rotation || 0,
       };
     } else {
       this.current = null;
@@ -1413,6 +1450,8 @@ let online = null;        // OnlineController 實例
 let stateSendAccum = 0;   // 線上模式:state 快照節流計時
 let localRematchReady = false;
 let peerRematchReady = false;
+let countdownPhase = 0;     // 0=無倒數,3/2/1=顯示數字,-1=顯示 GO!
+let countdownAccum = 0;
 const STATE_SEND_INTERVAL = 50; // ms,每秒約 20 次快照
 let running = false;
 let paused = false;
@@ -1632,6 +1671,7 @@ function buildBoardSnapshot(g) {
       type: g.current.type,
       shape: g.current.shape,
       x: g.current.x, y: g.current.y,
+      rotation: g.current.rotation || 0,
     } : null,
     held: g.held,
     nextType: g.next ? g.next.type : null,
@@ -1647,14 +1687,70 @@ function beginLoop() {
   Audio.init();
   Audio.startBgm();
   lastTime = performance.now();
+  startCountdown();
   cancelAnimationFrame(rafId);
   rafId = requestAnimationFrame(mainLoop);
+}
+
+function startCountdown() {
+  countdownPhase = 3;
+  countdownAccum = 0;
+  showCountdownText('3', false);
+}
+
+function isInCountdown() {
+  return countdownPhase !== 0;
+}
+
+function showCountdownText(text, isGo) {
+  const overlay = $('countdown-overlay');
+  const num = $('countdown-num');
+  num.textContent = text;
+  num.classList.toggle('go', !!isGo);
+  // 重啟 CSS 動畫
+  num.style.animation = 'none';
+  void num.offsetWidth;
+  num.style.animation = '';
+  overlay.classList.remove('hidden');
+}
+
+function hideCountdown() {
+  $('countdown-overlay').classList.add('hidden');
+  countdownPhase = 0;
+  countdownAccum = 0;
+}
+
+function tickCountdown(delta) {
+  countdownAccum += delta;
+  const phaseDuration = countdownPhase > 0 ? 1000 : 450; // GO! 顯示時間短一點
+  if (countdownAccum < phaseDuration) return;
+  countdownAccum -= phaseDuration;
+  if (countdownPhase > 1) {
+    countdownPhase--;
+    showCountdownText(String(countdownPhase), false);
+  } else if (countdownPhase === 1) {
+    countdownPhase = -1;
+    showCountdownText('GO!', true);
+  } else {
+    hideCountdown();
+    // 倒數結束後重設 lastTime,避免下一個 tick 帶入累積的 delta
+    lastTime = performance.now();
+  }
 }
 
 function mainLoop(time) {
   if (!running) return;
   const delta = time - lastTime;
   lastTime = time;
+
+  if (isInCountdown()) {
+    tickCountdown(delta);
+    // 倒數期間遊戲邏輯凍結,但仍重繪 (特效不更新)
+    for (const g of games) g.draw();
+    rafId = requestAnimationFrame(mainLoop);
+    return;
+  }
+
   if (!paused) {
     for (const g of games) g.tick(delta);
     if (cpuAI) cpuAI.tick(delta);
@@ -1709,6 +1805,7 @@ function endMatch(loser) {
 
 function togglePause() {
   if (!running || games.some(g => g.gameOver)) return;
+  if (isInCountdown()) return;     // 倒數中不可暫停
   if (mode === 'online') return;   // 線上模式無法單方面暫停
   paused = !paused;
   if (paused) {
@@ -1732,6 +1829,7 @@ function toggleMute() {
 function backToMenu() {
   running = false;
   paused = false;
+  hideCountdown();
   cancelAnimationFrame(rafId);
   Audio.stopBgm();
   games = [];
@@ -1797,7 +1895,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
 
-  if (!running || paused || e.repeat) return;
+  if (!running || paused || isInCountdown() || e.repeat) return;
   for (const g of games) g.handleKeyDown(e.code);
 });
 
