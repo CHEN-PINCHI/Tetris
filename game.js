@@ -1452,16 +1452,20 @@ class AIController {
   }
 }
 
-// ====== 線上對戰:PeerJS 連線封裝 ======
+// ====== 線上對戰:PeerJS 連線封裝(支援多人,host 端 star topology) ======
 class OnlineController {
   constructor() {
     this.peer = null;
-    this.conn = null;
-    this.role = null;       // 'host' | 'join'
-    this.code = null;       // 房間碼 (host 用)
-    this.onMessage = null;
-    this.onReady = null;    // 連線建立後觸發
-    this.onClose = null;
+    this.role = null;            // 'host' | 'join'
+    this.code = null;            // 房間碼 (host 用)
+    this.localId = null;         // 自己的 peer id
+    this.conns = [];             // host: 所有 joiner 連線;joiner: [hostConn]
+    this.hostConn = null;        // joiner: 跟 host 的連線
+    this.onMessage = null;       // (msg) — msg.from 已被填上
+    this.onPeerJoin = null;      // host only: (peerId)
+    this.onPeerLeave = null;     // host only: (peerId)
+    this.onReady = null;         // joiner: 與 host 連上
+    this.onClose = null;         // joiner: host 斷線
   }
 
   generateCode() {
@@ -1479,6 +1483,7 @@ class OnlineController {
       this.peer = new Peer(this.code, { debug: 0 });
       let opened = false;
       this.peer.on('open', id => {
+        this.localId = id;
         opened = true;
         resolve(this.code);
       });
@@ -1487,15 +1492,46 @@ class OnlineController {
         else this._handleError(err);
       });
       this.peer.on('connection', conn => {
-        // 已經有對手連線 — 拒絕額外連線
-        if (this.conn && this.conn.open) {
+        // 4 人上限 — host + 3 joiner
+        if (this.conns.length >= 3) {
           try { conn.close(); } catch {}
           return;
         }
-        this.conn = conn;
-        this._wireConn();
+        this.conns.push(conn);
+        this._wireHostConn(conn);
       });
     });
+  }
+
+  _wireHostConn(conn) {
+    conn.on('open', () => this.onPeerJoin && this.onPeerJoin(conn.peer));
+    conn.on('data', data => this._routeFromPeer(data, conn));
+    conn.on('close', () => {
+      this.conns = this.conns.filter(c => c !== conn);
+      this.onPeerLeave && this.onPeerLeave(conn.peer);
+    });
+    conn.on('error', err => this._handleError(err));
+  }
+
+  // host 收到 joiner 訊息:處理 + 視 target 決定要不要轉發
+  _routeFromPeer(msg, fromConn) {
+    if (!msg || typeof msg !== 'object') return;
+    msg.from = fromConn.peer;
+    if (msg.target) {
+      if (msg.target === this.localId) {
+        this.onMessage && this.onMessage(msg);
+      } else {
+        const c = this.conns.find(c => c.peer === msg.target);
+        if (c && c.open) { try { c.send(msg); } catch {} }
+      }
+    } else {
+      // broadcast:本地處理 + 轉發給其他 joiner
+      this.onMessage && this.onMessage(msg);
+      for (const c of this.conns) {
+        if (c.peer === fromConn.peer) continue;
+        if (c.open) { try { c.send(msg); } catch {} }
+      }
+    }
   }
 
   joinRoom(code) {
@@ -1503,50 +1539,85 @@ class OnlineController {
       this.role = 'join';
       this.code = code;
       this.peer = new Peer(undefined, { debug: 0 });
-      this.peer.on('open', () => {
-        this.conn = this.peer.connect(code, { reliable: true, serialization: 'json' });
+      this.peer.on('open', id => {
+        this.localId = id;
+        this.hostConn = this.peer.connect(code, { reliable: true, serialization: 'json' });
+        this.conns = [this.hostConn];
         let opened = false;
-        const openTimeout = setTimeout(() => {
+        const t = setTimeout(() => {
           if (!opened) reject(new Error('連線逾時 — 房間可能不存在'));
         }, 15000);
-        this.conn.on('open', () => {
+        this.hostConn.on('open', () => {
           opened = true;
-          clearTimeout(openTimeout);
-          this._wireConn(true);
+          clearTimeout(t);
+          this._wireJoinerConn(this.hostConn);
+          this.onReady && this.onReady();
           resolve();
         });
-        this.conn.on('error', err => {
-          if (!opened) { clearTimeout(openTimeout); reject(err); }
+        this.hostConn.on('error', err => {
+          if (!opened) { clearTimeout(t); reject(err); }
         });
       });
       this.peer.on('error', err => reject(err));
     });
   }
 
-  _wireConn(alreadyOpen = false) {
-    const fireReady = () => this.onReady && this.onReady();
-    if (alreadyOpen) fireReady();
-    else this.conn.on('open', fireReady);
-    this.conn.on('data', data => this.onMessage && this.onMessage(data));
-    this.conn.on('close', () => this.onClose && this.onClose());
-    this.conn.on('error', err => this._handleError(err));
+  _wireJoinerConn(conn) {
+    conn.on('data', data => this.onMessage && this.onMessage(data));
+    conn.on('close', () => this.onClose && this.onClose());
+    conn.on('error', err => this._handleError(err));
+  }
+
+  // 廣播訊息 — host:送給所有 joiner;joiner:送給 host (host 會再轉發)
+  send(msg) {
+    if (!msg || typeof msg !== 'object') return;
+    msg.from = this.localId;
+    if (this.role === 'host') {
+      for (const c of this.conns) {
+        if (c.open) { try { c.send(msg); } catch {} }
+      }
+    } else if (this.hostConn && this.hostConn.open) {
+      try { this.hostConn.send(msg); } catch {}
+    }
+  }
+
+  // 指定目標送 — host:直接送;joiner:透過 host 轉發
+  sendTo(targetId, msg) {
+    if (!msg || typeof msg !== 'object') return;
+    msg.from = this.localId;
+    msg.target = targetId;
+    if (this.role === 'host') {
+      if (targetId === this.localId) return;
+      const c = this.conns.find(c => c.peer === targetId);
+      if (c && c.open) { try { c.send(msg); } catch {} }
+    } else if (this.hostConn && this.hostConn.open) {
+      try { this.hostConn.send(msg); } catch {}
+    }
+  }
+
+  isReady() {
+    if (this.role === 'host') return this.conns.some(c => c.open);
+    return !!(this.hostConn && this.hostConn.open);
+  }
+
+  peerCount() {
+    return this.conns.filter(c => c.open).length;
+  }
+
+  connectedPeerIds() {
+    return this.conns.filter(c => c.open).map(c => c.peer);
   }
 
   _handleError(err) {
     console.error('[Online] error:', err);
   }
 
-  send(msg) {
-    if (this.conn && this.conn.open) {
-      try { this.conn.send(msg); } catch (e) { console.error('[Online] send failed:', e); }
-    }
-  }
-
   close() {
-    if (this.conn) { try { this.conn.close(); } catch {} }
+    for (const c of this.conns) { try { c.close(); } catch {} }
     if (this.peer) { try { this.peer.destroy(); } catch {} }
     this.peer = null;
-    this.conn = null;
+    this.conns = [];
+    this.hostConn = null;
   }
 }
 
@@ -1596,8 +1667,11 @@ let games = [];
 let cpuAI = null;
 let online = null;        // OnlineController 實例
 let stateSendAccum = 0;   // 線上模式:state 快照節流計時
+let roster = [];          // [{ peerId, slot, isLocal, alive }]
+let mySlot = -1;
 let localRematchReady = false;
 let peerRematchReady = false;
+let rematchVotes = new Set(); // 多人 rematch — 已投票的 peer id 集合
 let countdownPhase = 0;     // 0=無倒數,3/2/1=顯示數字,-1=顯示 GO!
 let countdownAccum = 0;
 const STATE_SEND_INTERVAL = 50; // ms,每秒約 20 次快照
@@ -1693,13 +1767,26 @@ function startCpu(difficulty) {
   beginLoop();
 }
 
-function startOnline() {
+// 由 host 觸發 (按下「開始遊戲」) 或 joiner 收到 host 的 'start' 訊息時呼叫
+function prepareOnlineGameStart(rosterData) {
   mode = 'online';
   cpuAI = null;
   stateSendAccum = 0;
   localRematchReady = false;
   peerRematchReady = false;
+  rematchVotes.clear();
   resetRematchButton();
+
+  // 建立 roster (注入 isLocal/alive 欄位)
+  roster = rosterData.map(p => ({
+    peerId: p.peerId,
+    slot: p.slot,
+    isLocal: p.peerId === online.localId,
+    alive: true,
+  }));
+  mySlot = roster.find(p => p.isLocal).slot;
+  const playerCount = roster.length;
+
   $('mode-select').classList.add('hidden');
   $('online-select').classList.add('hidden');
   $('cpu-select').classList.add('hidden');
@@ -1708,67 +1795,185 @@ function startOnline() {
   $('game-overlay').classList.add('hidden');
   setBattlePauseButtonVisible(false);
 
-  document.querySelector('.p1 .player-label').textContent = 'YOU';
-  document.querySelector('.p1 .control-hint').textContent =
-    '← → 移動 · ↓ 軟降 · ↑/X 順轉 · Z 反轉 · Space 硬降 · Shift/C Hold';
-  document.querySelector('.p2 .player-label').textContent =
-    online.role === 'host' ? 'GUEST · 對手' : 'HOST · 對手';
-  document.querySelector('.p2 .control-hint').textContent = '線上對手即時連線中';
+  // 切換 battle-wrap 排版 class
+  const wrap = document.querySelector('.battle-wrap');
+  wrap.classList.remove('players-2', 'players-3', 'players-4');
+  wrap.classList.add('players-' + playerCount);
 
-  const me = new Game({
-    boardId: 'board-1', nextId: 'next-1', holdId: 'hold-1',
-    scoreId: 'score-1', linesId: 'lines-1', comboId: 'combo-1',
-    garbageFillId: 'garbage-1',
-    blockSize: 24, previewSize: 18,
-    controls: SINGLE_CONTROLS,
-    onGameOver: () => {
-      online && online.send({ type: 'gameover' });
-      endMatch(me);
+  // 顯示對應數量的 player section,其餘隱藏
+  for (let i = 1; i <= 4; i++) {
+    const sec = document.querySelector('.player.p' + i);
+    if (!sec) continue;
+    if (i - 1 < playerCount) {
+      sec.classList.remove('hidden');
+      sec.classList.remove('eliminated');
+    } else {
+      sec.classList.add('hidden');
+    }
+  }
+
+  // 為每個 slot 建立 Game (本地) 或 RemoteGame
+  games = new Array(playerCount);
+  let localGame = null;
+  for (const p of roster) {
+    const n = p.slot + 1;
+    const cfg = {
+      boardId: 'board-' + n, nextId: 'next-' + n, holdId: 'hold-' + n,
+      scoreId: 'score-' + n, linesId: 'lines-' + n, comboId: 'combo-' + n,
+      garbageFillId: 'garbage-' + n,
+      blockSize: 24, previewSize: 18,
+    };
+    if (p.isLocal) {
+      cfg.controls = SINGLE_CONTROLS;
+      cfg.onGameOver = () => {
+        const meP = roster.find(p => p.isLocal);
+        meP.alive = false;
+        applyEliminatedUI(meP.slot);
+        online.send({ type: 'gameover' });
+        checkWinnerOrEnd();
+      };
+      const g = new Game(cfg);
+      games[p.slot] = g;
+      localGame = g;
+      // 設定 player-label
+      document.querySelector('.player.p' + n + ' .player-label').textContent = 'YOU';
+      document.querySelector('.player.p' + n + ' .control-hint').textContent =
+        '← → 移動 · ↓ 軟降 · ↑/X 順轉 · Z 反轉 · Space 硬降 · Shift/C Hold';
+    } else {
+      games[p.slot] = new RemoteGame(cfg);
+      document.querySelector('.player.p' + n + ' .player-label').textContent = '對手 ' + n;
+      document.querySelector('.player.p' + n + ' .control-hint').textContent = '線上對手';
+    }
+  }
+
+  // 本地遊戲攻擊路由:消行時隨機挑一個還活著的對手送 garbage
+  localGame.opponent = {
+    receiveGarbage: (n) => {
+      const target = pickRandomTarget();
+      if (target) online.sendTo(target, { type: 'garbage', lines: n });
     },
-  });
-  const remote = new RemoteGame({
-    boardId: 'board-2', nextId: 'next-2', holdId: 'hold-2',
-    scoreId: 'score-2', linesId: 'lines-2', comboId: 'combo-2',
-    garbageFillId: 'garbage-2',
-    blockSize: 24, previewSize: 18,
-  });
-
-  // 把攻擊路由到 peer (而不是本地 opponent.receiveGarbage)
-  me.opponent = {
-    receiveGarbage: (n) => online.send({ type: 'garbage', lines: n }),
   };
-
-  games = [me, remote];
 
   online.onMessage = (msg) => {
     if (!msg || !msg.type) return;
-    if (msg.type === 'garbage') {
-      me.receiveGarbage(msg.lines | 0);
+    if (msg.type === 'garbage' && msg.target === online.localId) {
+      localGame.receiveGarbage(msg.lines | 0);
     } else if (msg.type === 'board') {
-      remote.applyState(msg.state);
+      const sender = roster.find(p => p.peerId === msg.from);
+      if (sender && !sender.isLocal && games[sender.slot]) {
+        games[sender.slot].applyState(msg.state);
+      }
     } else if (msg.type === 'gameover') {
-      // 對手輸了 = 我贏
-      if (!me.gameOver) {
-        remote.gameOver = true;
-        endMatch(remote);
+      const sender = roster.find(p => p.peerId === msg.from);
+      if (sender && sender.alive) {
+        sender.alive = false;
+        applyEliminatedUI(sender.slot);
+        if (games[sender.slot]) games[sender.slot].gameOver = true;
+        checkWinnerOrEnd();
       }
     } else if (msg.type === 'rematch') {
-      handlePeerRematch();
+      handlePeerRematch(msg.from);
+    } else if (msg.type === 'peer-left') {
+      // host 廣播某玩家離開 — joiner 端標記淘汰
+      const p = roster.find(p => p.peerId === msg.peerId);
+      if (p && p.alive) {
+        p.alive = false;
+        applyEliminatedUI(p.slot);
+        if (games[p.slot]) games[p.slot].gameOver = true;
+        checkWinnerOrEnd();
+      }
+    } else if (msg.type === 'start') {
+      // host 廣播重新開始 (rematch)
+      prepareOnlineGameStart(msg.roster);
     }
   };
 
-  online.onClose = () => {
-    if (running) {
-      endMatchDisconnect();
-    } else {
-      // 已在 overlay (例如等待 rematch) 時對手離開 → 改顯示斷線
-      $('overlay-title').textContent = 'DISCONNECTED';
-      $('overlay-text').textContent = '對手已斷線';
-      $('overlay-restart').classList.add('hidden');
-    }
-  };
+  // host 端:遊戲中有玩家斷線 → 視為被淘汰,廣播給其他人
+  if (online.role === 'host') {
+    online.onPeerLeave = (peerId) => {
+      const p = roster.find(p => p.peerId === peerId);
+      if (p && p.alive) {
+        p.alive = false;
+        applyEliminatedUI(p.slot);
+        if (games[p.slot]) games[p.slot].gameOver = true;
+        online.send({ type: 'peer-left', peerId });
+        checkWinnerOrEnd();
+      }
+    };
+  } else {
+    // joiner: host 斷線 → 全員結束
+    online.onClose = () => {
+      if (running) endMatchHostDisconnect();
+      else {
+        $('overlay-title').textContent = 'DISCONNECTED';
+        $('overlay-text').textContent = '主機已斷線';
+        $('overlay-restart').classList.add('hidden');
+      }
+    };
+  }
 
   beginLoop();
+}
+
+function pickRandomTarget() {
+  const alive = roster.filter(p => p.alive && !p.isLocal);
+  if (alive.length === 0) return null;
+  return alive[Math.floor(Math.random() * alive.length)].peerId;
+}
+
+function applyEliminatedUI(slot) {
+  const sec = document.querySelector('.player.p' + (slot + 1));
+  if (sec) sec.classList.add('eliminated');
+}
+
+function clearEliminatedUI() {
+  for (let i = 1; i <= 4; i++) {
+    const sec = document.querySelector('.player.p' + i);
+    if (sec) sec.classList.remove('eliminated');
+  }
+}
+
+function checkWinnerOrEnd() {
+  const aliveList = roster.filter(p => p.alive);
+  if (aliveList.length > 1) return; // 還有多人活著 — 繼續打
+  // 結束 — 顯示勝負
+  endMatchMultiplayer(aliveList[0] || null);
+}
+
+function endMatchMultiplayer(winner) {
+  if (!running) return;
+  running = false;
+  Audio.stopBgm();
+  const overlay = $('game-overlay');
+  const title = $('overlay-title');
+  const text = $('overlay-text');
+  const restartBtn = $('overlay-restart');
+  if (!winner) {
+    title.textContent = 'DRAW';
+    text.textContent = '所有人陣亡';
+  } else if (winner.isLocal) {
+    title.textContent = 'YOU WIN!';
+    text.textContent = `恭喜!擊敗 ${roster.length - 1} 位對手`;
+  } else {
+    title.textContent = 'YOU LOSE';
+    text.textContent = `玩家 ${winner.slot + 1} 獲勝`;
+  }
+  restartBtn.textContent = '再來一場';
+  restartBtn.disabled = false;
+  restartBtn.classList.remove('hidden');
+  localRematchReady = false;
+  peerRematchReady = false;
+  rematchVotes.clear();
+  overlay.classList.remove('hidden');
+}
+
+function endMatchHostDisconnect() {
+  running = false;
+  Audio.stopBgm();
+  $('overlay-title').textContent = 'DISCONNECTED';
+  $('overlay-text').textContent = '主機已斷線,遊戲中止';
+  $('overlay-restart').classList.add('hidden');
+  $('game-overlay').classList.remove('hidden');
 }
 
 function endMatchDisconnect() {
@@ -1789,28 +1994,49 @@ function resetRematchButton() {
 }
 
 function onlineRequestRematch() {
-  if (mode !== 'online' || !online || !online.conn || !online.conn.open) return;
-  if (localRematchReady) return;
-  localRematchReady = true;
+  if (mode !== 'online' || !online || !online.isReady()) return;
+  if (rematchVotes.has(online.localId)) return;
+  rematchVotes.add(online.localId);
   online.send({ type: 'rematch' });
-  const btn = $('overlay-restart');
-  btn.textContent = peerRematchReady ? '開始中...' : '等待對手準備...';
-  btn.disabled = true;
-  if (peerRematchReady) startOnline();
+  updateRematchButton();
+  tryStartRematch();
 }
 
-function handlePeerRematch() {
-  peerRematchReady = true;
-  if (localRematchReady) {
-    startOnline();
+function handlePeerRematch(fromId) {
+  if (!fromId) return;
+  rematchVotes.add(fromId);
+  updateRematchButton();
+  tryStartRematch();
+}
+
+function updateRematchButton() {
+  const btn = $('overlay-restart');
+  if (!online) return;
+  const connectedPeers = online.connectedPeerIds();
+  const totalNeeded = connectedPeers.length + 1;
+  const got = rematchVotes.size;
+  if (rematchVotes.has(online.localId)) {
+    btn.textContent = `等待中 (${got}/${totalNeeded})`;
+    btn.disabled = true;
   } else {
-    const text = $('overlay-text');
-    if (!text.textContent.includes('對手已準備')) {
-      text.textContent += ' · 對手已準備再來一場';
-    }
-    const btn = $('overlay-restart');
-    btn.textContent = '再來一場 (對手準備中)';
+    btn.textContent = `再來一場 (${got}/${totalNeeded})`;
+    btn.disabled = false;
   }
+}
+
+function tryStartRematch() {
+  if (!online || online.role !== 'host') return;
+  if (running) return; // 遊戲進行中不重啟
+  const connectedPeers = online.connectedPeerIds();
+  if (connectedPeers.length === 0) return;
+  const allParticipants = [online.localId, ...connectedPeers];
+  const allVoted = allParticipants.every(id => rematchVotes.has(id));
+  if (!allVoted) return;
+  // 建立新 roster (剔除中途斷線的)
+  const newRoster = [{ peerId: online.localId, slot: 0 }];
+  connectedPeers.forEach((id, i) => newRoster.push({ peerId: id, slot: i + 1 }));
+  online.send({ type: 'start', roster: newRoster });
+  prepareOnlineGameStart(newRoster);
 }
 
 function buildBoardSnapshot(g) {
@@ -1904,12 +2130,13 @@ function mainLoop(time) {
   if (!paused) {
     for (const g of games) g.tick(delta);
     if (cpuAI) cpuAI.tick(delta);
-    // 線上模式:節流送出自己 (games[0]) 的快照給對手
-    if (mode === 'online' && online && online.conn && online.conn.open) {
+    // 線上模式:節流廣播自己的快照給所有對手
+    if (mode === 'online' && online && online.isReady() && mySlot >= 0) {
       stateSendAccum += delta;
-      if (stateSendAccum >= STATE_SEND_INTERVAL && !games[0].gameOver) {
+      const myGame = games[mySlot];
+      if (stateSendAccum >= STATE_SEND_INTERVAL && myGame && !myGame.gameOver) {
         stateSendAccum = 0;
-        online.send({ type: 'board', state: buildBoardSnapshot(games[0]) });
+        online.send({ type: 'board', state: buildBoardSnapshot(myGame) });
       }
     }
   }
@@ -1937,13 +2164,10 @@ function endMatch(loser) {
       ? `擊敗 ${diffName} CPU · 你 ${games[0].score} 分,對手 ${games[1].score}`
       : `不敵 ${diffName} CPU · 你 ${games[0].score} 分,對手 ${games[1].score}`;
   } else if (mode === 'online') {
-    const youWin = loser === games[1];
-    title.textContent = youWin ? 'YOU WIN!' : 'YOU LOSE';
-    text.textContent = `你 ${games[0].score} 分 · 對手 ${games[1].score} 分`;
-    // 重置 rematch 狀態並顯示按鈕(雙方都按下才會開始新一局)
-    localRematchReady = false;
-    peerRematchReady = false;
-    resetRematchButton();
+    // 線上模式採多人勝負判定 — 此 fallback 通常不會走到 (endMatchMultiplayer 已處理)
+    const aliveList = roster.filter(p => p.alive);
+    endMatchMultiplayer(aliveList[0] || null);
+    return;
   } else {
     const winner = loser === games[0] ? games[1] : games[0];
     const winnerLabel = winner === games[0] ? 'PLAYER 1' : 'PLAYER 2';
@@ -1984,6 +2208,15 @@ function backToMenu() {
   Audio.stopBgm();
   games = [];
   cpuAI = null;
+  roster = [];
+  mySlot = -1;
+  rematchVotes.clear();
+  clearEliminatedUI();
+  // 還原 battle-wrap class 與 player section 顯示
+  const wrap = document.querySelector('.battle-wrap');
+  if (wrap) wrap.classList.remove('players-2', 'players-3', 'players-4');
+  document.querySelectorAll('.player.p3, .player.p4').forEach(el => el.classList.add('hidden'));
+  document.querySelectorAll('.player.p1, .player.p2').forEach(el => el.classList.remove('hidden'));
   if (online) {
     online.close();
     online = null;
@@ -2007,6 +2240,8 @@ function resetOnlineLobby() {
   $('host-code').textContent = '建立中...';
   $('host-status').textContent = '正在建立房間...';
   $('host-status').className = 'online-status';
+  $('host-player-list').innerHTML = '';
+  $('host-start').disabled = true;
   $('join-status').textContent = '';
   $('join-status').className = 'online-status';
   const joinInput = $('join-code');
@@ -2097,21 +2332,64 @@ $('online-host').addEventListener('click', async () => {
   $('host-code').textContent = '建立中...';
   $('host-status').textContent = '正在建立房間...';
   $('host-status').className = 'online-status';
+  $('host-start').disabled = true;
   online = new OnlineController();
-  online.onReady = () => {
-    $('host-status').textContent = '對手已連線!即將開始...';
+  online.onPeerJoin = (peerId) => {
+    refreshHostPlayerList();
+    const total = online.peerCount() + 1;
+    $('host-status').textContent = `已加入 ${total} 人(最多 4 人)— 點「開始遊戲」開局`;
     $('host-status').className = 'online-status ok';
-    setTimeout(() => { if (online && online.conn && online.conn.open) startOnline(); }, 800);
+    $('host-start').disabled = total < 2;
+  };
+  online.onPeerLeave = (peerId) => {
+    refreshHostPlayerList();
+    const total = online.peerCount() + 1;
+    $('host-status').textContent = total >= 2
+      ? `已加入 ${total} 人 — 點「開始遊戲」開局`
+      : '等待對手加入...';
+    $('host-status').className = 'online-status';
+    $('host-start').disabled = total < 2;
   };
   try {
     const code = await online.hostRoom();
     $('host-code').textContent = code;
     $('host-status').textContent = '等待對手加入...';
+    refreshHostPlayerList();
   } catch (err) {
     $('host-status').textContent = '建立失敗:' + (err.message || err.type || '未知錯誤');
     $('host-status').className = 'online-status err';
     online = null;
   }
+});
+
+function refreshHostPlayerList() {
+  const ul = $('host-player-list');
+  ul.innerHTML = '';
+  const meLi = document.createElement('li');
+  meLi.textContent = '玩家 1 (你 · 房主)';
+  meLi.className = 'you';
+  ul.appendChild(meLi);
+  if (online) {
+    online.conns.forEach((c, i) => {
+      if (!c.open) return;
+      const li = document.createElement('li');
+      li.textContent = '玩家 ' + (i + 2);
+      ul.appendChild(li);
+    });
+  }
+}
+
+$('host-start').addEventListener('click', () => {
+  if (!online || online.role !== 'host') return;
+  const peerIds = online.connectedPeerIds();
+  if (peerIds.length === 0) return;
+  // 建立 roster:host 為 slot 0,joiner 依連線順序填入 slot 1, 2, 3
+  const rosterData = [{ peerId: online.localId, slot: 0 }];
+  peerIds.forEach((id, i) => rosterData.push({ peerId: id, slot: i + 1 }));
+  // 廣播 start 給所有 joiner
+  online.send({ type: 'start', roster: rosterData });
+  // host 自己也開始
+  prepareOnlineGameStart(rosterData);
 });
 $('copy-code').addEventListener('click', async () => {
   const code = $('host-code').textContent;
@@ -2157,9 +2435,20 @@ async function doJoin() {
   online = new OnlineController();
   try {
     await online.joinRoom(code);
-    $('join-status').textContent = '已連線!即將開始...';
+    $('join-status').textContent = '已連線!等待房主開始遊戲...';
     $('join-status').className = 'online-status ok';
-    setTimeout(() => { if (online && online.conn && online.conn.open) startOnline(); }, 600);
+    // 大廳期間先設一個臨時 handler 等待 host 發送 start
+    online.onMessage = (msg) => {
+      if (!msg || !msg.type) return;
+      if (msg.type === 'start' && Array.isArray(msg.roster)) {
+        prepareOnlineGameStart(msg.roster);
+      }
+    };
+    online.onClose = () => {
+      $('join-status').textContent = '主機已關閉房間';
+      $('join-status').className = 'online-status err';
+      if (online) { online.close(); online = null; }
+    };
   } catch (err) {
     const msg = (err && (err.message || err.type)) || '未知錯誤';
     let friendly = msg;

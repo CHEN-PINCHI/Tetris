@@ -778,3 +778,137 @@ canvas {
 }
 .online-status.ok { color: var(--emerald); }
 .online-status.err { color: var(--crimson); }
+
+.player-list {
+  list-style: none;
+  margin: 12px 0;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(167, 139, 250, 0.25);
+  border-radius: 10px;
+  min-width: 280px;
+  text-align: left;
+}
+.player-list li {
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  letter-spacing: 1px;
+  padding: 6px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.player-list li:last-child { border-bottom: none; }
+.player-list li::before {
+  content: '◆';
+  color: var(--rose);
+  font-size: 10px;
+}
+.player-list li.you::before {
+  content: '★';
+  color: var(--gold);
+}
+.player-list li.you { color: var(--gold); }
+.player-list:empty { display: none; }
+
+.start-btn {
+  margin-top: 14px;
+  min-width: 240px;
+  padding: 14px 22px;
+  font-size: 14px;
+  letter-spacing: 4px;
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.35), rgba(34, 211, 238, 0.35)) !important;
+  border-color: rgba(52, 211, 153, 0.5) !important;
+}
+.start-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.7), rgba(34, 211, 238, 0.7)) !important;
+  box-shadow: 0 14px 36px rgba(52, 211, 153, 0.5), 0 0 28px rgba(34, 211, 238, 0.5) !important;
+}
+.start-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: grayscale(0.4);
+}
+
+/* ===== 多人對戰版面 (3-4 人) ===== */
+.battle-wrap.players-3,
+.battle-wrap.players-4 {
+  display: grid;
+  gap: 18px;
+  justify-content: center;
+  align-items: start;
+}
+.battle-wrap.players-3 { grid-template-columns: repeat(3, auto); }
+.battle-wrap.players-4 { grid-template-columns: repeat(2, auto); }
+.battle-wrap.players-3 .vs-divider,
+.battle-wrap.players-4 .vs-divider { display: none; }
+.battle-wrap.players-3 canvas[id^="board-"],
+.battle-wrap.players-4 canvas[id^="board-"] {
+  width: 180px;
+  height: 360px;
+}
+.battle-wrap.players-3 .mini-side,
+.battle-wrap.players-4 .mini-side {
+  height: 360px;
+}
+.battle-wrap.players-3 canvas[id^="hold-"],
+.battle-wrap.players-4 canvas[id^="hold-"] {
+  width: 60px;
+  height: 60px;
+}
+.battle-wrap.players-3 canvas[id^="next-"],
+.battle-wrap.players-4 canvas[id^="next-"] {
+  width: 60px;
+  height: 180px;
+}
+.battle-wrap.players-3 .player-label,
+.battle-wrap.players-4 .player-label {
+  font-size: 18px;
+  letter-spacing: 4px;
+}
+.battle-wrap.players-3 .battle-stats,
+.battle-wrap.players-4 .battle-stats {
+  padding: 8px 14px;
+  gap: 10px;
+}
+.battle-wrap.players-3 .battle-stats strong,
+.battle-wrap.players-4 .battle-stats strong {
+  font-size: 16px;
+}
+.battle-wrap.players-3 .battle-stats span,
+.battle-wrap.players-4 .battle-stats span {
+  font-size: 8px;
+}
+.battle-wrap.players-3 .control-hint,
+.battle-wrap.players-4 .control-hint {
+  font-size: 11px;
+}
+
+/* 玩家陣亡 overlay (在棋盤上灰化 + 顯示 ELIMINATED) */
+.player.eliminated canvas[id^="board-"] {
+  filter: grayscale(1) brightness(0.5);
+  transition: filter 0.4s;
+}
+.player.eliminated {
+  position: relative;
+}
+.player.eliminated::after {
+  content: 'ELIMINATED';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-6deg);
+  font-family: 'Cinzel', serif;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  background: linear-gradient(135deg, var(--crimson), var(--gold));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 12px rgba(244, 63, 94, 0.7));
+  pointer-events: none;
+  z-index: 5;
+}
