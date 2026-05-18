@@ -125,6 +125,7 @@ class Game {
     this.scoreEl = $(config.scoreId);
     this.levelEl = config.levelId ? $(config.levelId) : null;
     this.linesEl = $(config.linesId);
+    this.comboEl = config.comboId ? $(config.comboId) : null;
     this.garbageFillEl = config.garbageFillId ? $(config.garbageFillId) : null;
     this.garbageBarEl = this.garbageFillEl ? this.garbageFillEl.parentElement : null;
 
@@ -163,6 +164,8 @@ class Game {
     this.shake = 0;
     this.lockTimer = 0;
     this.lockResetCount = 0;
+    this.lastActionIsRotate = false;
+    this.lastRotationKicked = false;
     this.next = this.makePiece(this.nextType());
     this.spawn();
     this.updateStats();
@@ -223,6 +226,8 @@ class Game {
     this.holdLocked = false;
     this.lockTimer = 0;
     this.lockResetCount = 0;
+    this.lastActionIsRotate = false;
+    this.lastRotationKicked = false;
     if (this.collides(this.current)) this.endGame();
   }
 
@@ -247,6 +252,7 @@ class Game {
     if (!this.current || this.gameOver) return;
     if (!this.collides(this.current, dx, 0)) {
       this.current.x += dx;
+      this.lastActionIsRotate = false;
       this.resetLockIfGrounded();
       Audio.play('move');
     }
@@ -257,6 +263,7 @@ class Game {
     if (!this.collides(this.current, 0, 1)) {
       this.current.y++;
       this.score += 1;
+      this.lastActionIsRotate = false;
       this.updateStats();
     }
     // 已落地時不立即固定 — 由 lock delay 處理
@@ -287,6 +294,8 @@ class Game {
         this.current.x += kx;
         this.current.y += ky;
         this.current.rotation = toRot;
+        this.lastActionIsRotate = true;
+        this.lastRotationKicked = (kx !== 0 || ky !== 0);
         this.resetLockIfGrounded();
         Audio.play('rotate');
         return;
@@ -322,13 +331,15 @@ class Game {
     }
   }
 
-  clearLines() {
+  clearLines(spinType) {
     // 先收集滿行(原 y 位置用於生特效)
     const fullRows = [];
     for (let y = 0; y < ROWS; y++) {
       if (this.board[y].every(c => c)) fullRows.push(y);
     }
     const cleared = fullRows.length;
+    const centerX = this.boardCanvas.width / 2;
+
     if (cleared > 0) {
       for (const y of fullRows) this.spawnLineClearEffect(y, this.board[y].slice());
       // 重建 board:過濾非滿行,前方補等量空行
@@ -338,23 +349,39 @@ class Game {
       newBoard.push(...remaining);
       this.board = newBoard;
 
-      const points = [0, 100, 300, 500, 800][cleared] * this.level;
+      // 計分:特殊轉採 guideline 較高分數
+      let basePoints;
+      if (spinType === 't-spin') {
+        basePoints = [400, 800, 1200, 1600, 2000][cleared] || 0;
+      } else if (spinType === 't-spin-mini') {
+        basePoints = [100, 200, 400, 0, 0][cleared] || 0;
+      } else if (spinType) {
+        basePoints = [100, 400, 800, 1200, 1600][cleared] || 0;
+      } else {
+        basePoints = [0, 100, 300, 500, 800][cleared];
+      }
+      const points = basePoints * this.level;
       this.score += points;
       this.lines += cleared;
       this.level = Math.floor(this.lines / 10) + 1;
-      Audio.play(cleared === 4 ? 'tetris' : 'clear');
-      this.shake = Math.min(14, 3 + cleared * 1.8);
+      Audio.play(cleared === 4 || spinType ? 'tetris' : 'clear');
+      this.shake = Math.min(16, 3 + cleared * 1.8 + (spinType ? 4 : 0));
 
       // 大型文字飛字
-      const centerX = this.boardCanvas.width / 2;
       const centerY = (fullRows[0] + fullRows[fullRows.length - 1] + 1) / 2 * this.blockSize;
-      this.spawnClearText(cleared, centerX, centerY);
+      this.spawnClearText(cleared, spinType, centerX, centerY);
       this.spawnScorePopup(points, centerX, centerY - this.blockSize);
 
-      // Tetris 額外效果:全板閃光 + 閃電
+      // 額外特效
       if (cleared === 4) {
         this.effects.push({ kind: 'boardFlash', life: 0, maxLife: 400 });
         this.spawnLightning(6);
+      }
+      if (spinType === 't-spin' && cleared >= 2) {
+        this.effects.push({ kind: 'boardFlash', life: 0, maxLife: 480 });
+        this.spawnLightning(7);
+      } else if (spinType === 't-spin' && cleared === 1) {
+        this.effects.push({ kind: 'boardFlash', life: 0, maxLife: 280 });
       }
 
       // 連消提示
@@ -363,20 +390,84 @@ class Game {
       }
 
       this.updateStats();
+    } else if (spinType) {
+      // 空消 spin(沒消行但有特殊轉)— 仍給分 + 飛字
+      let basePoints;
+      if (spinType === 't-spin') basePoints = 400;
+      else if (spinType === 't-spin-mini') basePoints = 100;
+      else basePoints = 100;
+      const points = basePoints * this.level;
+      this.score += points;
+      Audio.play('hold');
+      const cy = (this.current.y + 1) * this.blockSize;
+      this.spawnClearText(0, spinType, centerX, cy);
+      this.spawnScorePopup(points, centerX, cy - this.blockSize);
+      this.updateStats();
     }
     return cleared;
   }
 
+  // 偵測特殊轉 — 回傳 't-spin' | 't-spin-mini' | 's-spin' / 'z-spin' / 'l-spin' / 'j-spin' / 'i-spin' | null
+  detectSpinType() {
+    if (!this.lastActionIsRotate || !this.current) return null;
+    const type = this.current.type;
+    if (type === 'O') return null;
+    if (type === 'T') return this._detectTSpin();
+    // 非 T 方塊:採「需要 kick 才能完成的旋轉 + 已落地」當作 spin
+    if (this.lastRotationKicked && this.collides(this.current, 0, 1)) {
+      return type.toLowerCase() + '-spin';
+    }
+    return null;
+  }
+
+  // T-spin 3-corner 規則:T 的 3x3 邊角 4 格中至少 3 格被占據
+  // 若朝向側的兩個邊角都被占據 → full T-spin;否則 → T-spin mini
+  _detectTSpin() {
+    const p = this.current;
+    const cornerOccupied = (cx, cy) => {
+      const nx = p.x + cx;
+      const ny = p.y + cy;
+      if (nx < 0 || nx >= COLS || ny >= ROWS) return true; // 牆視為已占
+      if (ny < 0) return false;
+      return !!this.board[ny][nx];
+    };
+    const c = [
+      cornerOccupied(0, 0), // 左上
+      cornerOccupied(2, 0), // 右上
+      cornerOccupied(0, 2), // 左下
+      cornerOccupied(2, 2), // 右下
+    ];
+    const total = c.filter(Boolean).length;
+    if (total < 3) return null;
+    // T 指向方向 → 朝向側的兩個邊角
+    // rotation 0 = 朝上, 1 = 朝右, 2 = 朝下, 3 = 朝左
+    const rot = p.rotation || 0;
+    let frontA, frontB;
+    if (rot === 0)      { frontA = 0; frontB = 1; }   // 上方兩角
+    else if (rot === 1) { frontA = 1; frontB = 3; }   // 右方兩角
+    else if (rot === 2) { frontA = 2; frontB = 3; }   // 下方兩角
+    else                { frontA = 0; frontB = 2; }   // 左方兩角
+    if (c[frontA] && c[frontB]) return 't-spin';
+    return 't-spin-mini';
+  }
+
   lockPiece() {
+    const spinType = this.detectSpinType();
     this.merge();
     if (this.gameOver) return;
-    const cleared = this.clearLines();
+    const cleared = this.clearLines(spinType);
     let attack = ATTACK_TABLE[cleared] || 0;
 
     if (cleared > 0) {
       this.combo++;
       // 連消加成:每連 2 次多送 1 行
       if (this.combo >= 2) attack += Math.floor((this.combo - 1) / 2);
+      // 連消加分:guideline 50 × combo × level
+      if (this.combo >= 2) {
+        const comboPoints = 50 * (this.combo - 1) * this.level;
+        this.score += comboPoints;
+        this.updateStats();
+      }
     } else {
       this.combo = 0;
       // 沒消行 → 落下對手送過來的垃圾
@@ -487,23 +578,54 @@ class Game {
     }
   }
 
-  spawnClearText(cleared, x, y) {
-    const presets = {
-      1: { text: 'SINGLE',  gradient: ['#a5f3fc', '#22d3ee', '#0e7490'], glow: '#22d3ee', size: 1.5 },
-      2: { text: 'DOUBLE',  gradient: ['#c7d2fe', '#a78bfa', '#6d28d9'], glow: '#a78bfa', size: 1.6 },
-      3: { text: 'TRIPLE',  gradient: ['#fda4af', '#f43f5e', '#9f1239'], glow: '#f43f5e', size: 1.7 },
-      4: { text: 'TETRIS!', gradient: ['#fef3c7', '#fbbf24', '#f43f5e', '#a78bfa', '#22d3ee'], glow: '#fbbf24', size: 2.0 },
-    };
-    const p = presets[cleared];
+  spawnClearText(cleared, spinType, x, y) {
+    let p = null;
+    if (spinType === 't-spin') {
+      const tag = ['T-SPIN', 'T-SPIN SINGLE', 'T-SPIN DOUBLE', 'T-SPIN TRIPLE'][cleared] || 'T-SPIN';
+      p = {
+        text: tag,
+        gradient: ['#fef3c7', '#fbbf24', '#f43f5e', '#c026d3', '#a78bfa'],
+        glow: '#c026d3', size: 1.6 + cleared * 0.15,
+      };
+    } else if (spinType === 't-spin-mini') {
+      const tag = ['T-SPIN MINI', 'MINI T-SPIN SINGLE', 'MINI T-SPIN DOUBLE'][cleared] || 'T-SPIN MINI';
+      p = {
+        text: tag,
+        gradient: ['#f0abfc', '#c026d3', '#a78bfa'],
+        glow: '#a78bfa', size: 1.35,
+      };
+    } else if (spinType) {
+      // 'x-spin' → letter
+      const letter = spinType.charAt(0).toUpperCase();
+      const tag = cleared > 0
+        ? `${letter}-SPIN ${['','SINGLE','DOUBLE','TRIPLE'][cleared] || ''}`
+        : `${letter}-SPIN`;
+      // 依方塊類型取漸層
+      const c = COLORS[letter] || COLORS.T;
+      p = {
+        text: tag,
+        gradient: [c.light, c.mid, c.dark, '#a78bfa'],
+        glow: c.mid, size: 1.5 + cleared * 0.1,
+      };
+    } else {
+      const presets = {
+        1: { text: 'SINGLE',  gradient: ['#a5f3fc', '#22d3ee', '#0e7490'], glow: '#22d3ee', size: 1.5 },
+        2: { text: 'DOUBLE',  gradient: ['#c7d2fe', '#a78bfa', '#6d28d9'], glow: '#a78bfa', size: 1.6 },
+        3: { text: 'TRIPLE',  gradient: ['#fda4af', '#f43f5e', '#9f1239'], glow: '#f43f5e', size: 1.7 },
+        4: { text: 'TETRIS!', gradient: ['#fef3c7', '#fbbf24', '#f43f5e', '#a78bfa', '#22d3ee'], glow: '#fbbf24', size: 2.0 },
+      };
+      p = presets[cleared];
+    }
     if (!p) return;
+    const isBig = !!spinType || cleared === 4;
     this.effects.push({
       kind: 'textBurst', text: p.text,
       x, y, fontSize: this.blockSize * p.size,
       gradient: p.gradient, glow: p.glow,
       startScale: 0.3, endScale: 1.0,
       weight: 900, outline: 5, outlineColor: 'rgba(0,0,0,0.85)',
-      rise: 24,
-      life: 0, maxLife: cleared === 4 ? 1500 : 1100,
+      rise: 28,
+      life: 0, maxLife: isBig ? 1500 : 1100,
     });
   }
 
@@ -521,14 +643,22 @@ class Game {
   }
 
   spawnComboText(n, x, y) {
+    // Combo 越大字越大、漸層越華麗
+    const heat = Math.min(1, (n - 2) / 8);
+    const size = 0.85 + heat * 0.6;
+    const gradient = n >= 5
+      ? ['#fef3c7', '#fbbf24', '#f43f5e', '#c026d3', '#22d3ee']
+      : n >= 3
+        ? ['#fde68a', '#fbbf24', '#f43f5e']
+        : ['#fda4af', '#f43f5e'];
     this.effects.push({
       kind: 'textBurst', text: `COMBO ×${n}`,
-      x, y, fontSize: this.blockSize * 0.75,
-      color: '#fda4af', glow: '#f43f5e',
-      startScale: 0.5, endScale: 1.0,
-      weight: 700, outline: 3, outlineColor: 'rgba(0,0,0,0.7)',
-      rise: 40,
-      life: 0, maxLife: 1000,
+      x, y, fontSize: this.blockSize * size,
+      gradient, glow: n >= 5 ? '#fbbf24' : '#f43f5e',
+      startScale: 0.4, endScale: 1.0,
+      weight: 900, outline: 4, outlineColor: 'rgba(0,0,0,0.8)',
+      rise: 50,
+      life: 0, maxLife: 1200,
     });
   }
 
@@ -919,6 +1049,23 @@ class Game {
     if (this.scoreEl) this.scoreEl.textContent = this.score;
     if (this.levelEl) this.levelEl.textContent = this.level;
     if (this.linesEl) this.linesEl.textContent = this.lines;
+    if (this.comboEl) {
+      const prev = this.comboEl.textContent | 0;
+      this.comboEl.textContent = this.combo;
+      const parent = this.comboEl.parentElement;
+      if (this.combo > 1) {
+        parent.classList.add('has-combo');
+        if (this.combo !== prev) {
+          // 重播脈動動畫
+          this.comboEl.classList.remove('combo-anim');
+          void this.comboEl.offsetWidth;
+          this.comboEl.classList.add('combo-anim');
+        }
+      } else {
+        parent.classList.remove('has-combo');
+        this.comboEl.classList.remove('combo-anim');
+      }
+    }
   }
 
   updateGarbageBar() {
@@ -1435,6 +1582,7 @@ class RemoteGame extends Game {
     }
     this.score = s.score || 0;
     this.lines = s.lines || 0;
+    this.combo = s.combo || 0;
     this.pendingGarbage = s.pendingGarbage || 0;
     this.updateStats();
     this.updateGarbageBar();
@@ -1468,6 +1616,7 @@ function startSingle() {
   games = [new Game({
     boardId: 'board-s', nextId: 'next-s', holdId: 'hold-s',
     scoreId: 'score-s', levelId: 'level-s', linesId: 'lines-s',
+    comboId: 'combo-s',
     blockSize: 30, previewSize: 22,
     controls: SINGLE_CONTROLS,
     onGameOver: (g) => endMatch(),
@@ -1478,7 +1627,7 @@ function startSingle() {
 function setupBattlePlayers(opts = {}) {
   const g1 = new Game({
     boardId: 'board-1', nextId: 'next-1', holdId: 'hold-1',
-    scoreId: 'score-1', linesId: 'lines-1',
+    scoreId: 'score-1', linesId: 'lines-1', comboId: 'combo-1',
     garbageFillId: 'garbage-1',
     blockSize: 24, previewSize: 18,
     controls: opts.p1Controls || P1_CONTROLS,
@@ -1486,7 +1635,7 @@ function setupBattlePlayers(opts = {}) {
   });
   const g2 = new Game({
     boardId: 'board-2', nextId: 'next-2', holdId: 'hold-2',
-    scoreId: 'score-2', linesId: 'lines-2',
+    scoreId: 'score-2', linesId: 'lines-2', comboId: 'combo-2',
     garbageFillId: 'garbage-2',
     blockSize: 24, previewSize: 18,
     controls: opts.aiMode ? EMPTY_CONTROLS : P2_CONTROLS,
@@ -1568,7 +1717,7 @@ function startOnline() {
 
   const me = new Game({
     boardId: 'board-1', nextId: 'next-1', holdId: 'hold-1',
-    scoreId: 'score-1', linesId: 'lines-1',
+    scoreId: 'score-1', linesId: 'lines-1', comboId: 'combo-1',
     garbageFillId: 'garbage-1',
     blockSize: 24, previewSize: 18,
     controls: SINGLE_CONTROLS,
@@ -1579,7 +1728,7 @@ function startOnline() {
   });
   const remote = new RemoteGame({
     boardId: 'board-2', nextId: 'next-2', holdId: 'hold-2',
-    scoreId: 'score-2', linesId: 'lines-2',
+    scoreId: 'score-2', linesId: 'lines-2', comboId: 'combo-2',
     garbageFillId: 'garbage-2',
     blockSize: 24, previewSize: 18,
   });
@@ -1677,6 +1826,7 @@ function buildBoardSnapshot(g) {
     nextType: g.next ? g.next.type : null,
     score: g.score,
     lines: g.lines,
+    combo: g.combo,
     pendingGarbage: g.pendingGarbage,
   };
 }
