@@ -64,6 +64,10 @@ const EMPTY_CONTROLS = {
 const DAS_MS = 150;
 const ARR_MS = 40;
 
+// Lock delay:方塊碰底後延遲固定的時間 (ms);旋轉/平移會重置計時(最多 N 次)
+const LOCK_DELAY = 1000;
+const MAX_LOCK_RESETS = 15;
+
 // AI 難度設定
 //   thinkDelay : 出現新方塊到開始動作的延遲 (ms)
 //   moveDelay  : 每個按鍵動作之間的間隔 (ms)
@@ -127,6 +131,8 @@ class Game {
     this.current = null;
     this.effects = [];
     this.shake = 0;
+    this.lockTimer = 0;
+    this.lockResetCount = 0;
     this.next = this.makePiece(this.nextType());
     this.spawn();
     this.updateStats();
@@ -184,6 +190,8 @@ class Game {
     this.current = this.next;
     this.next = this.makePiece(this.nextType());
     this.holdLocked = false;
+    this.lockTimer = 0;
+    this.lockResetCount = 0;
     if (this.collides(this.current)) this.endGame();
   }
 
@@ -194,10 +202,21 @@ class Game {
   }
 
   // ====== 操作 ======
+  // 成功移動/旋轉後,如果方塊已落地則重置 lock 計時(最多 MAX_LOCK_RESETS 次)
+  resetLockIfGrounded() {
+    if (this.collides(this.current, 0, 1)) {
+      if (this.lockResetCount < MAX_LOCK_RESETS) {
+        this.lockTimer = 0;
+        this.lockResetCount++;
+      }
+    }
+  }
+
   move(dx) {
     if (!this.current || this.gameOver) return;
     if (!this.collides(this.current, dx, 0)) {
       this.current.x += dx;
+      this.resetLockIfGrounded();
       Audio.play('move');
     }
   }
@@ -208,9 +227,8 @@ class Game {
       this.current.y++;
       this.score += 1;
       this.updateStats();
-    } else {
-      this.lockPiece();
     }
+    // 已落地時不立即固定 — 由 lock delay 處理
   }
 
   hardDrop() {
@@ -233,6 +251,7 @@ class Game {
       if (!this.collides(this.current, k, 0, rotated)) {
         this.current.shape = rotated;
         this.current.x += k;
+        this.resetLockIfGrounded();
         Audio.play('rotate');
         return;
       }
@@ -875,13 +894,29 @@ class Game {
   tick(delta) {
     this.updateEffects(delta);
     if (this.gameOver) return;
+
+    const grounded = !!this.current && this.collides(this.current, 0, 1);
+    if (grounded) {
+      // 已落地 → 累積 lock 計時,時間到才固定
+      this.lockTimer += delta;
+      if (this.lockTimer >= LOCK_DELAY) {
+        this.lockPiece();
+        return;
+      }
+    } else {
+      // 浮空 → 重置 lock 狀態
+      this.lockTimer = 0;
+      this.lockResetCount = 0;
+    }
+
+    // 重力下降(只在浮空時才需要)
     this.dropTimer += delta;
     const interval = DROP_INTERVAL[Math.min(this.level - 1, DROP_INTERVAL.length - 1)];
     if (this.dropTimer > interval) {
       this.dropTimer = 0;
-      if (!this.collides(this.current, 0, 1)) this.current.y++;
-      else this.lockPiece();
+      if (!grounded && !this.collides(this.current, 0, 1)) this.current.y++;
     }
+
     // DAS / ARR
     const now = performance.now();
     const s = this.inputState;
@@ -1376,7 +1411,9 @@ let games = [];
 let cpuAI = null;
 let online = null;        // OnlineController 實例
 let stateSendAccum = 0;   // 線上模式:state 快照節流計時
-const STATE_SEND_INTERVAL = 100; // ms,每秒約 10 次快照
+let localRematchReady = false;
+let peerRematchReady = false;
+const STATE_SEND_INTERVAL = 50; // ms,每秒約 20 次快照
 let running = false;
 let paused = false;
 let muted = false;
@@ -1421,6 +1458,11 @@ function setupBattlePlayers(opts = {}) {
   return [g1, g2];
 }
 
+function setBattlePauseButtonVisible(visible) {
+  const btn = document.querySelector('.battle-toolbar [data-action="pause"]');
+  if (btn) btn.style.display = visible ? '' : 'none';
+}
+
 function startBattle() {
   mode = 'battle';
   cpuAI = null;
@@ -1429,6 +1471,7 @@ function startBattle() {
   $('single-layout').classList.add('hidden');
   $('battle-layout').classList.remove('hidden');
   $('game-overlay').classList.add('hidden');
+  setBattlePauseButtonVisible(true);
   // 還原成雙人模式的標籤與按鍵提示
   document.querySelector('.p1 .player-label').textContent = 'PLAYER 1';
   document.querySelector('.p1 .control-hint').textContent =
@@ -1448,6 +1491,7 @@ function startCpu(difficulty) {
   $('single-layout').classList.add('hidden');
   $('battle-layout').classList.remove('hidden');
   $('game-overlay').classList.add('hidden');
+  setBattlePauseButtonVisible(true);
   const diffName = AI_DIFFICULTIES[difficulty].name;
   // CPU 模式下 P1 用單人模式的方向鍵控制(P2 是 AI 不會搶按鍵)
   document.querySelector('.p1 .player-label').textContent = 'PLAYER 1';
@@ -1465,12 +1509,16 @@ function startOnline() {
   mode = 'online';
   cpuAI = null;
   stateSendAccum = 0;
+  localRematchReady = false;
+  peerRematchReady = false;
+  resetRematchButton();
   $('mode-select').classList.add('hidden');
   $('online-select').classList.add('hidden');
   $('cpu-select').classList.add('hidden');
   $('single-layout').classList.add('hidden');
   $('battle-layout').classList.remove('hidden');
   $('game-overlay').classList.add('hidden');
+  setBattlePauseButtonVisible(false);
 
   document.querySelector('.p1 .player-label').textContent = 'YOU';
   document.querySelector('.p1 .control-hint').textContent =
@@ -1516,11 +1564,20 @@ function startOnline() {
         remote.gameOver = true;
         endMatch(remote);
       }
+    } else if (msg.type === 'rematch') {
+      handlePeerRematch();
     }
   };
 
   online.onClose = () => {
-    if (running) endMatchDisconnect();
+    if (running) {
+      endMatchDisconnect();
+    } else {
+      // 已在 overlay (例如等待 rematch) 時對手離開 → 改顯示斷線
+      $('overlay-title').textContent = 'DISCONNECTED';
+      $('overlay-text').textContent = '對手已斷線';
+      $('overlay-restart').classList.add('hidden');
+    }
   };
 
   beginLoop();
@@ -1534,6 +1591,38 @@ function endMatchDisconnect() {
   $('overlay-text').textContent = '對手已斷線';
   $('overlay-restart').classList.add('hidden');
   overlay.classList.remove('hidden');
+}
+
+function resetRematchButton() {
+  const btn = $('overlay-restart');
+  btn.textContent = '再來一場';
+  btn.disabled = false;
+  btn.classList.remove('hidden');
+}
+
+function onlineRequestRematch() {
+  if (mode !== 'online' || !online || !online.conn || !online.conn.open) return;
+  if (localRematchReady) return;
+  localRematchReady = true;
+  online.send({ type: 'rematch' });
+  const btn = $('overlay-restart');
+  btn.textContent = peerRematchReady ? '開始中...' : '等待對手準備...';
+  btn.disabled = true;
+  if (peerRematchReady) startOnline();
+}
+
+function handlePeerRematch() {
+  peerRematchReady = true;
+  if (localRematchReady) {
+    startOnline();
+  } else {
+    const text = $('overlay-text');
+    if (!text.textContent.includes('對手已準備')) {
+      text.textContent += ' · 對手已準備再來一場';
+    }
+    const btn = $('overlay-restart');
+    btn.textContent = '再來一場 (對手準備中)';
+  }
 }
 
 function buildBoardSnapshot(g) {
@@ -1605,8 +1694,10 @@ function endMatch(loser) {
     const youWin = loser === games[1];
     title.textContent = youWin ? 'YOU WIN!' : 'YOU LOSE';
     text.textContent = `你 ${games[0].score} 分 · 對手 ${games[1].score} 分`;
-    // 線上模式不能單方面重來,只能回大廳
-    restartBtn.classList.add('hidden');
+    // 重置 rematch 狀態並顯示按鈕(雙方都按下才會開始新一局)
+    localRematchReady = false;
+    peerRematchReady = false;
+    resetRematchButton();
   } else {
     const winner = loser === games[0] ? games[1] : games[0];
     const winnerLabel = winner === games[0] ? 'PLAYER 1' : 'PLAYER 2';
@@ -1649,7 +1740,9 @@ function backToMenu() {
     online.close();
     online = null;
   }
-  $('overlay-restart').classList.remove('hidden');
+  localRematchReady = false;
+  peerRematchReady = false;
+  resetRematchButton();
   $('single-layout').classList.add('hidden');
   $('battle-layout').classList.add('hidden');
   $('game-overlay').classList.add('hidden');
@@ -1676,7 +1769,7 @@ function restartMatch() {
   if (mode === 'single') startSingle();
   else if (mode === 'battle') startBattle();
   else if (mode === 'cpu') startCpu(cpuDifficulty);
-  else if (mode === 'online') backToMenu(); // 線上模式回大廳重新配對
+  else if (mode === 'online') onlineRequestRematch();
   else backToMenu();
 }
 
@@ -1698,7 +1791,9 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Enter' && !e.repeat) {
     if (paused) { togglePause(); return; }
     if (!running && mode && !$('game-overlay').classList.contains('hidden')) {
-      restartMatch(); return;
+      if (mode === 'online') onlineRequestRematch();
+      else restartMatch();
+      return;
     }
   }
 
@@ -1724,7 +1819,10 @@ $('cpu-back').addEventListener('click', () => {
 document.querySelectorAll('.diff-btn').forEach(btn => {
   btn.addEventListener('click', () => startCpu(btn.dataset.diff));
 });
-$('overlay-restart').addEventListener('click', restartMatch);
+$('overlay-restart').addEventListener('click', () => {
+  if (mode === 'online') onlineRequestRematch();
+  else restartMatch();
+});
 $('overlay-back').addEventListener('click', backToMenu);
 
 // ===== 線上對戰大廳按鈕 =====
