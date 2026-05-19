@@ -1453,18 +1453,23 @@ class AIController {
 }
 
 // ====== 線上對戰:PeerJS 連線封裝(支援多人,host 端 star topology) ======
-// ICE 伺服器設定 — 雙方 NAT/防火牆嚴格無法 P2P 直連時,需要 TURN 中繼。
-// 目前只有 STUN (公共,免費),TURN 待 ExpressTURN 帳號開好後補上。
+// ICE 伺服器設定 — STUN 給 P2P 直連使用;TURN 在雙方 NAT/防火牆嚴格時
+// 自動 fallback 走中繼,確保總是能通。TURN 同時提供 UDP 與 TCP 兩種傳輸,
+// UDP 被防火牆擋掉時會自動退到 TCP。
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    // TODO: 加入 ExpressTURN credential
-    // {
-    //   urls: 'turn:relay1.expressturn.com:3478',
-    //   username: '你的_username',
-    //   credential: '你的_credential',
-    // },
+    {
+      urls: 'turn:free.expressturn.com:3478',
+      username: '000000002094566530',
+      credential: 'QN0kvKv9uptzayAUziqPkDpOPjU=',
+    },
+    {
+      urls: 'turn:free.expressturn.com:3478?transport=tcp',
+      username: '000000002094566530',
+      credential: 'QN0kvKv9uptzayAUziqPkDpOPjU=',
+    },
   ],
 };
 
