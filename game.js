@@ -33,7 +33,20 @@ const DROP_INTERVAL = [
 
 // 攻擊表:消行數 → 送出的垃圾行數
 //   1 行: 1   2 行: 2   3 行: 3   4 行 (Tetris): 4
-const ATTACK_TABLE = [0, 1, 2, 3, 4];
+// Tetris Guideline 攻擊表 — index = 消行數
+const ATTACK_TABLE        = [0, 0, 1, 2, 4];       // 一般消行 (Single 不送行)
+const ATTACK_TABLE_TSPIN  = [0, 2, 4, 6, 0];       // T-spin 消行
+const ATTACK_TABLE_TMINI  = [0, 0, 1, 0, 0];       // T-spin Mini 消行
+const PERFECT_CLEAR_ATTACK = 10;                    // Perfect Clear 額外送 10 行
+// COMBO 攻擊加成 (PPT / TETR.IO 標準);combo=1 為第一次消行
+function getComboAttackBonus(combo) {
+  if (combo <= 1) return 0;
+  if (combo <= 3) return 1;
+  if (combo <= 5) return 2;
+  if (combo <= 7) return 3;
+  if (combo <= 10) return 4;
+  return 5;
+}
 
 // 操作對應(用 e.code,跨鍵盤一致)
 const SINGLE_CONTROLS = {
@@ -157,6 +170,9 @@ class Game {
     this.dropTimer = 0;
     this.combo = 0;
     this.b2bCount = 0;  // Back-to-Back 連續困難消行計數 (Tetris 或 T-spin 消行)
+    this.lastClearWasB2B = false;
+    this.lastClearWasPC = false;
+    this.lastClearWasDifficult = false;
     this.pendingGarbage = 0;
     this.pendingGap = -1;
     this.gameOver = false;
@@ -367,11 +383,14 @@ class Game {
 
       // Back-to-Back:連續困難消行,第 2 次起本次消行分數 ×1.5
       const isB2B = isDifficult && this.b2bCount > 0;
+      this.lastClearWasB2B = isB2B; // 供 lockPiece 計算攻擊加成用
+      this.lastClearWasDifficult = isDifficult;
       const points = Math.floor(basePoints * this.level * (isB2B ? 1.5 : 1));
       this.score += points;
 
       // Perfect Clear:消完後棋盤完全空,額外加分
       const isPerfectClear = this.board.every(row => row.every(cell => !cell));
+      this.lastClearWasPC = isPerfectClear; // 供 lockPiece 計算攻擊加成用
       let pcPoints = 0;
       if (isPerfectClear) {
         const pcBase = [0, 800, 1200, 1800, 2000][cleared] || 0;
@@ -484,12 +503,25 @@ class Game {
     this.merge();
     if (this.gameOver) return;
     const cleared = this.clearLines(spinType);
-    let attack = ATTACK_TABLE[cleared] || 0;
+    let attack = 0;
 
     if (cleared > 0) {
+      // 基底攻擊行數:採 Tetris Guideline
+      if (spinType === 't-spin') {
+        attack = ATTACK_TABLE_TSPIN[cleared] || 0;
+      } else if (spinType === 't-spin-mini') {
+        attack = ATTACK_TABLE_TMINI[cleared] || 0;
+      } else {
+        attack = ATTACK_TABLE[cleared] || 0;
+      }
+      // B2B 加成:連續困難消行多送 +1 行
+      if (this.lastClearWasB2B) attack += 1;
+      // Perfect Clear 加成:固定 +10 行
+      if (this.lastClearWasPC) attack += PERFECT_CLEAR_ATTACK;
+
       this.combo++;
-      // 連消加成:每連 2 次多送 1 行
-      if (this.combo >= 2) attack += Math.floor((this.combo - 1) / 2);
+      // COMBO 攻擊加成 (PPT 標準表)
+      attack += getComboAttackBonus(this.combo);
       // 連消加分:guideline 50 × combo × level
       if (this.combo >= 2) {
         const comboPoints = 50 * (this.combo - 1) * this.level;
