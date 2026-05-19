@@ -1480,7 +1480,7 @@ class OnlineController {
     return new Promise((resolve, reject) => {
       this.role = 'host';
       this.code = this.generateCode();
-      this.peer = new Peer(this.code, { debug: 0 });
+      this.peer = new Peer(this.code, { debug: 3 });
       let opened = false;
       this.peer.on('open', id => {
         this.localId = id;
@@ -1538,7 +1538,7 @@ class OnlineController {
     return new Promise((resolve, reject) => {
       this.role = 'join';
       this.code = code;
-      this.peer = new Peer(undefined, { debug: 0 });
+      this.peer = new Peer(undefined, { debug: 3 });
       this.peer.on('open', id => {
         this.localId = id;
         this.hostConn = this.peer.connect(code, { reliable: true, serialization: 'json' });
