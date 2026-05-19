@@ -1512,8 +1512,8 @@ class OnlineController {
         else this._handleError(err);
       });
       this.peer.on('connection', conn => {
-        // 4 人上限 — host + 3 joiner
-        if (this.conns.length >= 3) {
+        // 5 人上限 — host + 4 joiner
+        if (this.conns.length >= 4) {
           try { conn.close(); } catch {}
           return;
         }
@@ -1817,13 +1817,14 @@ function prepareOnlineGameStart(rosterData) {
 
   // 切換 battle-wrap 排版 class
   const wrap = document.querySelector('.battle-wrap');
-  wrap.classList.remove('players-2', 'players-3', 'players-4');
+  wrap.classList.remove('players-2', 'players-3', 'players-4', 'players-5');
   wrap.classList.add('players-' + playerCount);
 
-  // 顯示對應數量的 player section,其餘隱藏
-  for (let i = 1; i <= 4; i++) {
+  // 顯示對應數量的 player section,其餘隱藏;先清掉所有 local-player 標記
+  for (let i = 1; i <= 5; i++) {
     const sec = document.querySelector('.player.p' + i);
     if (!sec) continue;
+    sec.classList.remove('local-player');
     if (i - 1 < playerCount) {
       sec.classList.remove('hidden');
       sec.classList.remove('eliminated');
@@ -1831,6 +1832,9 @@ function prepareOnlineGameStart(rosterData) {
       sec.classList.add('hidden');
     }
   }
+  // 把本地玩家的 section 標記出來,CSS 用此把本地強制排到左邊並保持大尺寸
+  const localSec = document.querySelector('.player.p' + (mySlot + 1));
+  if (localSec) localSec.classList.add('local-player');
 
   // 為每個 slot 建立 Game (本地) 或 RemoteGame
   games = new Array(playerCount);
@@ -1947,7 +1951,7 @@ function applyEliminatedUI(slot) {
 }
 
 function clearEliminatedUI() {
-  for (let i = 1; i <= 4; i++) {
+  for (let i = 1; i <= 5; i++) {
     const sec = document.querySelector('.player.p' + i);
     if (sec) sec.classList.remove('eliminated');
   }
@@ -2234,9 +2238,10 @@ function backToMenu() {
   clearEliminatedUI();
   // 還原 battle-wrap class 與 player section 顯示
   const wrap = document.querySelector('.battle-wrap');
-  if (wrap) wrap.classList.remove('players-2', 'players-3', 'players-4');
-  document.querySelectorAll('.player.p3, .player.p4').forEach(el => el.classList.add('hidden'));
+  if (wrap) wrap.classList.remove('players-2', 'players-3', 'players-4', 'players-5');
+  document.querySelectorAll('.player.p3, .player.p4, .player.p5').forEach(el => el.classList.add('hidden'));
   document.querySelectorAll('.player.p1, .player.p2').forEach(el => el.classList.remove('hidden'));
+  document.querySelectorAll('.player').forEach(el => el.classList.remove('local-player'));
   if (online) {
     online.close();
     online = null;
@@ -2357,7 +2362,7 @@ $('online-host').addEventListener('click', async () => {
   online.onPeerJoin = (peerId) => {
     refreshHostPlayerList();
     const total = online.peerCount() + 1;
-    $('host-status').textContent = `已加入 ${total} 人(最多 4 人)— 點「開始遊戲」開局`;
+    $('host-status').textContent = `已加入 ${total} 人(最多 5 人)— 點「開始遊戲」開局`;
     $('host-status').className = 'online-status ok';
     $('host-start').disabled = total < 2;
   };

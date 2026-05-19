@@ -60,7 +60,7 @@
       </div>
 
       <div id="online-host-panel" class="online-panel hidden">
-        <p class="online-hint">把這串房間碼傳給朋友(最多 4 人):</p>
+        <p class="online-hint">把這串房間碼傳給朋友(最多 5 人):</p>
         <div class="room-code-box">
           <code id="host-code">建立中...</code>
           <button id="copy-code" type="button">複製</button>
@@ -194,7 +194,7 @@
         <p class="control-hint">↑ 旋轉 · ←/→ 左右 · ↓ 軟降 · Enter 硬降 · / Hold</p>
       </section>
 
-      <!-- 線上 3-4 人對戰時才顯示 -->
+      <!-- 線上 3-5 人對戰時才顯示 -->
       <section class="player p3 hidden" data-slot="2">
         <h2 class="player-label">PLAYER 3</h2>
         <div class="battle-stats">
@@ -245,6 +245,34 @@
             <div class="mini-box">
               <h4>NEXT</h4>
               <canvas id="next-4" width="80" height="240"></canvas>
+            </div>
+          </div>
+        </div>
+        <p class="control-hint">線上對手</p>
+      </section>
+
+      <section class="player p5 hidden" data-slot="4">
+        <h2 class="player-label">PLAYER 5</h2>
+        <div class="battle-stats">
+          <div><span>SCORE</span><strong id="score-5">0</strong></div>
+          <div><span>LINES</span><strong id="lines-5">0</strong></div>
+          <div><span>COMBO</span><strong id="combo-5">0</strong></div>
+        </div>
+        <div class="battle-game">
+          <div class="mini-side">
+            <div class="mini-box">
+              <h4>HOLD</h4>
+              <canvas id="hold-5" width="80" height="80"></canvas>
+            </div>
+            <div class="garbage-bar" title="待落下垃圾">
+              <div class="garbage-fill" id="garbage-5"></div>
+            </div>
+          </div>
+          <canvas id="board-5"></canvas>
+          <div class="mini-side">
+            <div class="mini-box">
+              <h4>NEXT</h4>
+              <canvas id="next-5" width="80" height="240"></canvas>
             </div>
           </div>
         </div>

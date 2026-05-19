@@ -832,58 +832,113 @@ canvas {
   filter: grayscale(0.4);
 }
 
-/* ===== 多人對戰版面 (3-4 人) ===== */
+/* ===== 線上對戰版面 (2-5 人) ===== */
+/* 共通理念:本地玩家永遠固定在左邊;本地放大到 280×560,
+   對手縮成 120×240,讓 2 個對手堆疊 (3p) 或 3-4 個對手 2x2 排列 (4-5p)
+   時總高度 ≈ 本地總高度,左右視覺平衡。 */
+
+/* 2 人:左右並排同尺寸 (280×560),本地強制在左 */
+.battle-wrap.players-2 .player.local-player { order: 1; }
+.battle-wrap.players-2 .vs-divider { order: 2; }
+.battle-wrap.players-2 .player:not(.local-player) { order: 3; }
+.battle-wrap.players-2 canvas[id^="board-"] {
+  width: 280px !important;
+  height: 560px !important;
+}
+.battle-wrap.players-2 .mini-side { height: 560px; }
+
+/* 3-5 人:grid 兩/三欄,本地左欄大,對手右側縮小 */
 .battle-wrap.players-3,
-.battle-wrap.players-4 {
+.battle-wrap.players-4,
+.battle-wrap.players-5 {
   display: grid;
-  gap: 18px;
+  column-gap: 28px;
+  row-gap: 16px;
   justify-content: center;
   align-items: start;
 }
-.battle-wrap.players-3 { grid-template-columns: repeat(3, auto); }
-.battle-wrap.players-4 { grid-template-columns: repeat(2, auto); }
+.battle-wrap.players-3 { grid-template-columns: auto auto; }
+.battle-wrap.players-4,
+.battle-wrap.players-5 { grid-template-columns: auto auto auto; }
 .battle-wrap.players-3 .vs-divider,
-.battle-wrap.players-4 .vs-divider { display: none; }
-.battle-wrap.players-3 canvas[id^="board-"],
-.battle-wrap.players-4 canvas[id^="board-"] {
-  width: 180px;
-  height: 360px;
+.battle-wrap.players-4 .vs-divider,
+.battle-wrap.players-5 .vs-divider { display: none; }
+
+/* 本地玩家:左欄、跨 2 列、與 2 人模式同大小 (280×560) */
+.battle-wrap.players-3 .player.local-player,
+.battle-wrap.players-4 .player.local-player,
+.battle-wrap.players-5 .player.local-player {
+  grid-column: 1;
+  grid-row: 1 / span 2;
 }
-.battle-wrap.players-3 .mini-side,
-.battle-wrap.players-4 .mini-side {
-  height: 360px;
+.battle-wrap.players-3 .player.local-player canvas[id^="board-"],
+.battle-wrap.players-4 .player.local-player canvas[id^="board-"],
+.battle-wrap.players-5 .player.local-player canvas[id^="board-"] {
+  width: 280px !important;
+  height: 560px !important;
 }
-.battle-wrap.players-3 canvas[id^="hold-"],
-.battle-wrap.players-4 canvas[id^="hold-"] {
-  width: 60px;
-  height: 60px;
+.battle-wrap.players-3 .player.local-player .mini-side,
+.battle-wrap.players-4 .player.local-player .mini-side,
+.battle-wrap.players-5 .player.local-player .mini-side {
+  height: 560px;
 }
-.battle-wrap.players-3 canvas[id^="next-"],
-.battle-wrap.players-4 canvas[id^="next-"] {
-  width: 60px;
-  height: 180px;
+
+/* 對手:auto-place 到剩餘 cells (3p 單欄堆 2 個;4p 2 欄堆 3 個,1 格空;
+   5p 2 欄堆 4 個剛好填滿);全部尺寸統一為 120×240 */
+.battle-wrap.players-3 .player:not(.local-player) canvas[id^="board-"],
+.battle-wrap.players-4 .player:not(.local-player) canvas[id^="board-"],
+.battle-wrap.players-5 .player:not(.local-player) canvas[id^="board-"] {
+  width: 120px !important;
+  height: 240px !important;
 }
-.battle-wrap.players-3 .player-label,
-.battle-wrap.players-4 .player-label {
-  font-size: 18px;
-  letter-spacing: 4px;
+.battle-wrap.players-3 .player:not(.local-player) .mini-side,
+.battle-wrap.players-4 .player:not(.local-player) .mini-side,
+.battle-wrap.players-5 .player:not(.local-player) .mini-side {
+  height: 240px;
 }
-.battle-wrap.players-3 .battle-stats,
-.battle-wrap.players-4 .battle-stats {
-  padding: 8px 14px;
-  gap: 10px;
+.battle-wrap.players-3 .player:not(.local-player) canvas[id^="hold-"],
+.battle-wrap.players-4 .player:not(.local-player) canvas[id^="hold-"],
+.battle-wrap.players-5 .player:not(.local-player) canvas[id^="hold-"] {
+  width: 48px;
+  height: 48px;
 }
-.battle-wrap.players-3 .battle-stats strong,
-.battle-wrap.players-4 .battle-stats strong {
+.battle-wrap.players-3 .player:not(.local-player) canvas[id^="next-"],
+.battle-wrap.players-4 .player:not(.local-player) canvas[id^="next-"],
+.battle-wrap.players-5 .player:not(.local-player) canvas[id^="next-"] {
+  width: 48px;
+  height: 144px;
+}
+.battle-wrap.players-3 .player:not(.local-player) .player-label,
+.battle-wrap.players-4 .player:not(.local-player) .player-label,
+.battle-wrap.players-5 .player:not(.local-player) .player-label {
+  font-size: 14px;
+  letter-spacing: 3px;
+}
+.battle-wrap.players-3 .player:not(.local-player) .battle-stats,
+.battle-wrap.players-4 .player:not(.local-player) .battle-stats,
+.battle-wrap.players-5 .player:not(.local-player) .battle-stats {
+  padding: 6px 10px;
+  gap: 8px;
+}
+.battle-wrap.players-3 .player:not(.local-player) .battle-stats strong,
+.battle-wrap.players-4 .player:not(.local-player) .battle-stats strong,
+.battle-wrap.players-5 .player:not(.local-player) .battle-stats strong {
+  font-size: 13px;
+}
+.battle-wrap.players-3 .player:not(.local-player) .battle-stats span,
+.battle-wrap.players-4 .player:not(.local-player) .battle-stats span,
+.battle-wrap.players-5 .player:not(.local-player) .battle-stats span {
+  font-size: 7px;
+}
+.battle-wrap.players-3 .player:not(.local-player) .control-hint,
+.battle-wrap.players-4 .player:not(.local-player) .control-hint,
+.battle-wrap.players-5 .player:not(.local-player) .control-hint {
+  font-size: 10px;
+}
+.battle-wrap.players-3 .player:not(.local-player).eliminated::after,
+.battle-wrap.players-4 .player:not(.local-player).eliminated::after,
+.battle-wrap.players-5 .player:not(.local-player).eliminated::after {
   font-size: 16px;
-}
-.battle-wrap.players-3 .battle-stats span,
-.battle-wrap.players-4 .battle-stats span {
-  font-size: 8px;
-}
-.battle-wrap.players-3 .control-hint,
-.battle-wrap.players-4 .control-hint {
-  font-size: 11px;
 }
 
 /* 玩家陣亡 overlay (在棋盤上灰化 + 顯示 ELIMINATED) */
