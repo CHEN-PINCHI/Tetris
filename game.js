@@ -26,9 +26,12 @@ const COLORS = {
 
 const TYPES = Object.keys(SHAPES);
 
+// Tetris Guideline 重力曲線:每等級下落 1 格所需 ms
+// 公式 = (0.8 - (level-1) * 0.007) ^ (level-1) 秒
+// lv 1: 1.000s ... lv 10: 0.064s ... lv 15: 0.007s ... lv 19+: 接近 20G (instant)
 const DROP_INTERVAL = [
-  800, 720, 630, 550, 470, 380, 300, 220, 130, 100,
-  80,  80,  80,  70,  70,  70,  50,  50,  50,  30,
+  1000, 793, 618, 473, 355, 262, 189, 134,  93,  64,
+    43,  28,  18,  11,   7,   4,   3,   2,   1,   1,
 ];
 
 // 攻擊表:消行數 → 送出的垃圾行數
@@ -74,11 +77,12 @@ const EMPTY_CONTROLS = {
   left: [], right: [], down: [], rotateCW: [], rotateCCW: [], hardDrop: [], hold: [],
 };
 
-const DAS_MS = 150;
-const ARR_MS = 40;
+// DAS (Delayed Auto Shift) / ARR (Auto Repeat Rate) — TETR.IO 預設值
+const DAS_MS = 167;
+const ARR_MS = 33;
 
 // Lock delay:方塊碰底後延遲固定的時間 (ms);旋轉/平移會重置計時(最多 N 次)
-const LOCK_DELAY = 1000;
+const LOCK_DELAY = 500;  // Tetris Guideline 標準 0.5 秒
 const MAX_LOCK_RESETS = 15;
 
 // ====== SRS (Super Rotation System) wall kick 表 ======
