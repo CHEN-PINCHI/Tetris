@@ -156,6 +156,7 @@ class Game {
     this.lines = 0;
     this.dropTimer = 0;
     this.combo = 0;
+    this.b2bCount = 0;  // Back-to-Back 連續困難消行計數 (Tetris 或 T-spin 消行)
     this.pendingGarbage = 0;
     this.pendingGap = -1;
     this.gameOver = false;
@@ -349,28 +350,55 @@ class Game {
       newBoard.push(...remaining);
       this.board = newBoard;
 
-      // 計分:特殊轉採 guideline 較高分數
+      // 計分:採 Tetris Guideline 標準
       let basePoints;
+      let isDifficult = false; // 困難消行 = Tetris (4) 或任何 T-spin / T-spin Mini 消行
       if (spinType === 't-spin') {
         basePoints = [400, 800, 1200, 1600, 2000][cleared] || 0;
+        isDifficult = true;
       } else if (spinType === 't-spin-mini') {
         basePoints = [100, 200, 400, 0, 0][cleared] || 0;
-      } else if (spinType) {
-        basePoints = [100, 400, 800, 1200, 1600][cleared] || 0;
+        isDifficult = true;
       } else {
+        // 一般消行 + S/Z/L/J/I-spin 同分 (Guideline 後者沒有特殊計分)
         basePoints = [0, 100, 300, 500, 800][cleared];
+        if (cleared === 4) isDifficult = true;
       }
-      const points = basePoints * this.level;
+
+      // Back-to-Back:連續困難消行,第 2 次起本次消行分數 ×1.5
+      const isB2B = isDifficult && this.b2bCount > 0;
+      const points = Math.floor(basePoints * this.level * (isB2B ? 1.5 : 1));
       this.score += points;
+
+      // Perfect Clear:消完後棋盤完全空,額外加分
+      const isPerfectClear = this.board.every(row => row.every(cell => !cell));
+      let pcPoints = 0;
+      if (isPerfectClear) {
+        const pcBase = [0, 800, 1200, 1800, 2000][cleared] || 0;
+        pcPoints = pcBase * this.level;
+        // B2B Tetris PC 再加 1200×lv (合計 3200×lv)
+        if (cleared === 4 && this.b2bCount > 0) pcPoints += 1200 * this.level;
+        this.score += pcPoints;
+      }
+
       this.lines += cleared;
       this.level = Math.floor(this.lines / 10) + 1;
+
+      // 更新 b2b 計數
+      if (isDifficult) this.b2bCount++;
+      else this.b2bCount = 0;
+
       Audio.play(cleared === 4 || spinType ? 'tetris' : 'clear');
       this.shake = Math.min(16, 3 + cleared * 1.8 + (spinType ? 4 : 0));
 
       // 大型文字飛字 — 固定顯示在棋盤頂端,不擋操作區
       const topY = this.blockSize * 2;
       this.spawnClearText(cleared, spinType, centerX, topY);
-      this.spawnScorePopup(points, centerX, topY + this.blockSize * 1.6);
+      this.spawnScorePopup(points + pcPoints, centerX, topY + this.blockSize * 1.6);
+      // B2B 提示 (連 2 次以上的困難消行)
+      if (isB2B) this.spawnB2BText(centerX, topY - this.blockSize * 0.9);
+      // Perfect Clear 提示
+      if (isPerfectClear) this.spawnPerfectClearText(centerX, topY + this.blockSize * 4.5);
 
       // 額外特效
       if (cleared === 4) {
@@ -391,17 +419,17 @@ class Game {
 
       this.updateStats();
     } else if (spinType) {
-      // 空消 spin(沒消行但有特殊轉)— 仍給分 + 飛字
-      let basePoints;
+      // 空消 spin — Guideline 只給 T-spin / T-spin Mini 空消分,
+      // S/Z/L/J/I-spin 沒有官方計分,只顯示視覺。
+      let basePoints = 0;
       if (spinType === 't-spin') basePoints = 400;
       else if (spinType === 't-spin-mini') basePoints = 100;
-      else basePoints = 100;
       const points = basePoints * this.level;
-      this.score += points;
+      if (points > 0) this.score += points;
       Audio.play('hold');
       const topY = this.blockSize * 2;
       this.spawnClearText(0, spinType, centerX, topY);
-      this.spawnScorePopup(points, centerX, topY + this.blockSize * 1.6);
+      if (points > 0) this.spawnScorePopup(points, centerX, topY + this.blockSize * 1.6);
       this.updateStats();
     }
     return cleared;
@@ -639,6 +667,32 @@ class Game {
       weight: 700, outline: 3, outlineColor: 'rgba(0,0,0,0.7)',
       rise: 60,
       life: 0, maxLife: 900,
+    });
+  }
+
+  spawnB2BText(x, y) {
+    this.effects.push({
+      kind: 'textBurst', text: 'B2B!',
+      x, y, fontSize: this.blockSize * 0.85,
+      gradient: ['#fde68a', '#fbbf24', '#f43f5e'],
+      glow: '#fbbf24',
+      startScale: 0.4, endScale: 1.0,
+      weight: 900, outline: 4, outlineColor: 'rgba(0,0,0,0.8)',
+      rise: 18,
+      life: 0, maxLife: 900,
+    });
+  }
+
+  spawnPerfectClearText(x, y) {
+    this.effects.push({
+      kind: 'textBurst', text: 'PERFECT CLEAR',
+      x, y, fontSize: this.blockSize * 1.2,
+      gradient: ['#a7f3d0', '#34d399', '#22d3ee', '#a78bfa', '#f472b6'],
+      glow: '#34d399',
+      startScale: 0.3, endScale: 1.0,
+      weight: 900, outline: 5, outlineColor: 'rgba(0,0,0,0.85)',
+      rise: 14,
+      life: 0, maxLife: 1500,
     });
   }
 
