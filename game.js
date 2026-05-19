@@ -2127,7 +2127,14 @@ function endMatchMultiplayer(winner) {
     text.textContent = '所有人陣亡';
   } else if (winner.isLocal) {
     title.textContent = 'YOU WIN!';
-    text.textContent = `恭喜!擊敗 ${roster.length - 1} 位對手`;
+    if (roster.length === 2) {
+      // 1v1 — 直接秀對手暱稱
+      const opp = roster.find(p => !p.isLocal);
+      const oppName = opp ? (opp.nickname || ('玩家' + (opp.slot + 1))) : '對手';
+      text.textContent = `恭喜!擊敗 ${oppName}`;
+    } else {
+      text.textContent = `恭喜!擊敗 ${roster.length - 1} 位對手`;
+    }
   } else {
     title.textContent = 'YOU LOSE';
     text.textContent = `${winner.nickname || ('玩家' + (winner.slot + 1))} 獲勝`;
