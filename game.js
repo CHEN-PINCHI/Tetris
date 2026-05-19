@@ -1,3 +1,16 @@
+// ====== localStorage 持久化工具 ======
+const Storage = {
+  get(key, defaultValue) {
+    try {
+      const v = localStorage.getItem('tetris_' + key);
+      return v === null ? defaultValue : JSON.parse(v);
+    } catch { return defaultValue; }
+  },
+  set(key, value) {
+    try { localStorage.setItem('tetris_' + key, JSON.stringify(value)); } catch {}
+  },
+};
+
 // ====== 常數 ======
 const COLS = 10;
 const ROWS = 20;
@@ -143,6 +156,11 @@ class Game {
     this.levelEl = config.levelId ? $(config.levelId) : null;
     this.linesEl = $(config.linesId);
     this.comboEl = config.comboId ? $(config.comboId) : null;
+    this.bestEl = config.bestId ? $(config.bestId) : null;
+    this.b2bEl = config.b2bId ? $(config.b2bId) : null;
+    this.tSpinEl = config.tSpinId ? $(config.tSpinId) : null;
+    this.pcEl = config.pcId ? $(config.pcId) : null;
+    this.bestKey = config.bestKey || null;  // 例如 'best_single' — 沒設就不顯示最高
     this.garbageFillEl = config.garbageFillId ? $(config.garbageFillId) : null;
     this.garbageBarEl = this.garbageFillEl ? this.garbageFillEl.parentElement : null;
 
@@ -174,6 +192,8 @@ class Game {
     this.dropTimer = 0;
     this.combo = 0;
     this.b2bCount = 0;  // Back-to-Back 連續困難消行計數 (Tetris 或 T-spin 消行)
+    this.tSpinCount = 0; // 本局完成的 T-spin/T-spin Mini 消行次數
+    this.pcCount = 0;    // 本局完成的 Perfect Clear 次數
     this.lastClearWasB2B = false;
     this.lastClearWasPC = false;
     this.lastClearWasDifficult = false;
@@ -395,6 +415,9 @@ class Game {
       // Perfect Clear:消完後棋盤完全空,額外加分
       const isPerfectClear = this.board.every(row => row.every(cell => !cell));
       this.lastClearWasPC = isPerfectClear; // 供 lockPiece 計算攻擊加成用
+      // 統計累計
+      if (spinType === 't-spin' || spinType === 't-spin-mini') this.tSpinCount++;
+      if (isPerfectClear) this.pcCount++;
       let pcPoints = 0;
       if (isPerfectClear) {
         const pcBase = [0, 800, 1200, 1800, 2000][cleared] || 0;
@@ -1140,6 +1163,13 @@ class Game {
     if (this.scoreEl) this.scoreEl.textContent = this.score;
     if (this.levelEl) this.levelEl.textContent = this.level;
     if (this.linesEl) this.linesEl.textContent = this.lines;
+    if (this.b2bEl) this.b2bEl.textContent = Math.max(0, this.b2bCount - 1); // 顯示 B2B 連擊次數 (第 1 次困難消行算 chain=0)
+    if (this.tSpinEl) this.tSpinEl.textContent = this.tSpinCount;
+    if (this.pcEl) this.pcEl.textContent = this.pcCount;
+    if (this.bestEl && this.bestKey) {
+      const best = Storage.get(this.bestKey, 0);
+      this.bestEl.textContent = Math.max(best, this.score);
+    }
     if (this.comboEl) {
       const prev = this.comboEl.textContent | 0;
       this.comboEl.textContent = this.combo;
@@ -1558,7 +1588,10 @@ function sanitizeNickname(s) {
 function readMyNickname() {
   const input = document.getElementById('nickname-input');
   const cleaned = sanitizeNickname(input ? input.value : '');
-  return cleaned || generateRandomNickname();
+  const finalName = cleaned || generateRandomNickname();
+  // 暱稱(若使用者有輸入)持久化,下次打開自動帶入
+  if (cleaned) Storage.set('nickname', cleaned);
+  return finalName;
 }
 
 // ====== 線上對戰:PeerJS 連線封裝(支援多人,host 端 star topology) ======
@@ -1822,6 +1855,8 @@ function startSingle() {
     boardId: 'board-s', nextId: 'next-s', holdId: 'hold-s',
     scoreId: 'score-s', levelId: 'level-s', linesId: 'lines-s',
     comboId: 'combo-s',
+    bestId: 'best-s', bestKey: 'best_single',
+    b2bId: 'b2b-s', tSpinId: 'tspin-s', pcId: 'pc-s',
     blockSize: 30, previewSize: 22,
     controls: SINGLE_CONTROLS,
     onGameOver: (g) => endMatch(),
@@ -1833,6 +1868,7 @@ function setupBattlePlayers(opts = {}) {
   const g1 = new Game({
     boardId: 'board-1', nextId: 'next-1', holdId: 'hold-1',
     scoreId: 'score-1', linesId: 'lines-1', comboId: 'combo-1',
+    b2bId: 'b2b-1',
     garbageFillId: 'garbage-1',
     blockSize: 24, previewSize: 18,
     controls: opts.p1Controls || P1_CONTROLS,
@@ -1841,6 +1877,7 @@ function setupBattlePlayers(opts = {}) {
   const g2 = new Game({
     boardId: 'board-2', nextId: 'next-2', holdId: 'hold-2',
     scoreId: 'score-2', linesId: 'lines-2', comboId: 'combo-2',
+    b2bId: 'b2b-2',
     garbageFillId: 'garbage-2',
     blockSize: 24, previewSize: 18,
     controls: opts.aiMode ? EMPTY_CONTROLS : P2_CONTROLS,
@@ -1956,6 +1993,7 @@ function prepareOnlineGameStart(rosterData) {
     const cfg = {
       boardId: 'board-' + n, nextId: 'next-' + n, holdId: 'hold-' + n,
       scoreId: 'score-' + n, linesId: 'lines-' + n, comboId: 'combo-' + n,
+      b2bId: 'b2b-' + n,
       garbageFillId: 'garbage-' + n,
       blockSize: 24, previewSize: 18,
     };
@@ -2296,8 +2334,14 @@ function endMatch(loser) {
   const restartBtn = $('overlay-restart');
   restartBtn.classList.remove('hidden');
   if (mode === 'single') {
-    title.textContent = 'GAME OVER';
-    text.textContent = `分數: ${games[0].score}  消行: ${games[0].lines}`;
+    const finalScore = games[0].score;
+    const prevBest = Storage.get('best_single', 0);
+    const isNewBest = finalScore > prevBest;
+    if (isNewBest) Storage.set('best_single', finalScore);
+    title.textContent = isNewBest ? '新紀錄!' : 'GAME OVER';
+    text.textContent = isNewBest
+      ? `分數: ${finalScore}  消行: ${games[0].lines}  (前次最高: ${prevBest})`
+      : `分數: ${finalScore}  消行: ${games[0].lines}  最高: ${prevBest}`;
   } else if (mode === 'cpu') {
     const youWin = loser === games[1];
     const diffName = AI_DIFFICULTIES[cpuDifficulty].name;
@@ -2340,6 +2384,7 @@ function togglePause() {
 function toggleMute() {
   muted = !muted;
   Audio.setMuted(muted);
+  Storage.set('muted', muted);
 }
 
 function backToMenu() {
@@ -2726,4 +2771,14 @@ const Audio = (() => {
   }
 
   return { init, play, startBgm, stopBgm, setMuted };
+})();
+
+// ====== 啟動時還原 localStorage 設定 ======
+(() => {
+  // 還原靜音狀態
+  muted = Storage.get('muted', false);
+  // 還原暱稱 (進入線上大廳時自動填回)
+  const savedNick = Storage.get('nickname', '');
+  const nickInput = document.getElementById('nickname-input');
+  if (nickInput && savedNick) nickInput.value = savedNick;
 })();
