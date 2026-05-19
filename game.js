@@ -2130,7 +2130,7 @@ function endMatchMultiplayer(winner) {
     text.textContent = `恭喜!擊敗 ${roster.length - 1} 位對手`;
   } else {
     title.textContent = 'YOU LOSE';
-    text.textContent = `玩家 ${winner.slot + 1} 獲勝`;
+    text.textContent = `${winner.nickname || ('玩家' + (winner.slot + 1))} 獲勝`;
   }
   restartBtn.textContent = '再來一場';
   restartBtn.disabled = false;
