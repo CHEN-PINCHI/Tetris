@@ -1453,33 +1453,18 @@ class AIController {
 }
 
 // ====== 線上對戰:PeerJS 連線封裝(支援多人,host 端 star topology) ======
-// ICE 伺服器設定 — STUN 用 Google 公共;TURN 用 OpenRelay 公共中繼(免註冊),
-// 當雙方 NAT/防火牆嚴格無法 P2P 直連時自動 fallback 走 TURN over TCP 443,
-// 看起來就跟一般 HTTPS 流量一樣,幾乎不會被擋。
+// ICE 伺服器設定 — 雙方 NAT/防火牆嚴格無法 P2P 直連時,需要 TURN 中繼。
+// 目前只有 STUN (公共,免費),TURN 待 ExpressTURN 帳號開好後補上。
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turns:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
+    // TODO: 加入 ExpressTURN credential
+    // {
+    //   urls: 'turn:relay1.expressturn.com:3478',
+    //   username: '你的_username',
+    //   credential: '你的_credential',
+    // },
   ],
 };
 
