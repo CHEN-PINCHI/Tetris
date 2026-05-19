@@ -54,9 +54,14 @@
       <h1 class="title" style="font-size: 56px; letter-spacing: 10px;">線上對戰</h1>
       <p class="subtitle">ONLINE BATTLE</p>
 
-      <div id="online-pick" class="mode-buttons">
-        <button id="online-host">建立房間</button>
-        <button id="online-join">加入房間</button>
+      <div id="online-pick">
+        <div class="nickname-row">
+          <input id="nickname-input" type="text" placeholder="輸入暱稱(留空隨機產生)" maxlength="16" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="mode-buttons">
+          <button id="online-host">建立房間</button>
+          <button id="online-join">加入房間</button>
+        </div>
       </div>
 
       <div id="online-host-panel" class="online-panel hidden">

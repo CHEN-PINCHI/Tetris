@@ -1452,6 +1452,24 @@ class AIController {
   }
 }
 
+// ====== 暱稱工具 ======
+const NICK_ADJ = ['神秘', '無敵', '幸運', '勇敢', '聰明', '狡猾', '機靈', '霸氣', '頑強', '冷酷', '熱血', '快速'];
+const NICK_NOUN = ['方塊王', '消行者', '硬降俠', 'T客', 'COMBO 王', '俄羅斯人', '旋轉手', '攻擊者', '挑戰者', '對手'];
+function generateRandomNickname() {
+  const a = NICK_ADJ[Math.floor(Math.random() * NICK_ADJ.length)];
+  const n = NICK_NOUN[Math.floor(Math.random() * NICK_NOUN.length)];
+  return a + n;
+}
+function sanitizeNickname(s) {
+  if (typeof s !== 'string') return '';
+  return s.replace(/[\n\r\t]/g, ' ').trim().slice(0, 16);
+}
+function readMyNickname() {
+  const input = document.getElementById('nickname-input');
+  const cleaned = sanitizeNickname(input ? input.value : '');
+  return cleaned || generateRandomNickname();
+}
+
 // ====== 線上對戰:PeerJS 連線封裝(支援多人,host 端 star topology) ======
 // ICE 伺服器設定 — STUN 給 P2P 直連使用;TURN 在雙方 NAT/防火牆嚴格時
 // 自動 fallback 走中繼,確保總是能通。TURN 同時提供 UDP 與 TCP 兩種傳輸,
@@ -1687,8 +1705,10 @@ let games = [];
 let cpuAI = null;
 let online = null;        // OnlineController 實例
 let stateSendAccum = 0;   // 線上模式:state 快照節流計時
-let roster = [];          // [{ peerId, slot, isLocal, alive }]
+let roster = [];          // [{ peerId, slot, nickname, isLocal, alive }]
 let mySlot = -1;
+let myNickname = '';      // 本地玩家暱稱 (進入房間時設定)
+const peerNicknames = new Map(); // peerId → nickname (host 用,儲存 joiner 暱稱)
 let localRematchReady = false;
 let peerRematchReady = false;
 let rematchVotes = new Set(); // 多人 rematch — 已投票的 peer id 集合
@@ -1797,10 +1817,11 @@ function prepareOnlineGameStart(rosterData) {
   rematchVotes.clear();
   resetRematchButton();
 
-  // 建立 roster (注入 isLocal/alive 欄位)
+  // 建立 roster (注入 isLocal/alive 欄位,nickname 來自 host 廣播)
   roster = rosterData.map(p => ({
     peerId: p.peerId,
     slot: p.slot,
+    nickname: sanitizeNickname(p.nickname) || ('玩家' + (p.slot + 1)),
     isLocal: p.peerId === online.localId,
     alive: true,
   }));
@@ -1859,13 +1880,13 @@ function prepareOnlineGameStart(rosterData) {
       const g = new Game(cfg);
       games[p.slot] = g;
       localGame = g;
-      // 設定 player-label
-      document.querySelector('.player.p' + n + ' .player-label').textContent = 'YOU';
+      // 設定 player-label — 本地玩家顯示 "YOU · 暱稱"
+      document.querySelector('.player.p' + n + ' .player-label').textContent = 'YOU · ' + p.nickname;
       document.querySelector('.player.p' + n + ' .control-hint').textContent =
         '← → 移動 · ↓ 軟降 · ↑/X 順轉 · Z 反轉 · Space 硬降 · Shift/C Hold';
     } else {
       games[p.slot] = new RemoteGame(cfg);
-      document.querySelector('.player.p' + n + ' .player-label').textContent = '對手 ' + n;
+      document.querySelector('.player.p' + n + ' .player-label').textContent = p.nickname;
       document.querySelector('.player.p' + n + ' .control-hint').textContent = '線上對手';
     }
   }
@@ -2056,9 +2077,15 @@ function tryStartRematch() {
   const allParticipants = [online.localId, ...connectedPeers];
   const allVoted = allParticipants.every(id => rematchVotes.has(id));
   if (!allVoted) return;
-  // 建立新 roster (剔除中途斷線的)
-  const newRoster = [{ peerId: online.localId, slot: 0 }];
-  connectedPeers.forEach((id, i) => newRoster.push({ peerId: id, slot: i + 1 }));
+  // 建立新 roster (剔除中途斷線的) — 沿用 roster 裡記下的暱稱
+  const nickOf = (peerId) => {
+    const p = roster.find(r => r.peerId === peerId);
+    return p && p.nickname ? p.nickname : generateRandomNickname();
+  };
+  const newRoster = [{ peerId: online.localId, slot: 0, nickname: myNickname || nickOf(online.localId) }];
+  connectedPeers.forEach((id, i) => newRoster.push({
+    peerId: id, slot: i + 1, nickname: nickOf(id),
+  }));
   online.send({ type: 'start', roster: newRoster });
   prepareOnlineGameStart(newRoster);
 }
@@ -2242,6 +2269,7 @@ function backToMenu() {
   document.querySelectorAll('.player.p3, .player.p4, .player.p5').forEach(el => el.classList.add('hidden'));
   document.querySelectorAll('.player.p1, .player.p2').forEach(el => el.classList.remove('hidden'));
   document.querySelectorAll('.player').forEach(el => el.classList.remove('local-player'));
+  peerNicknames.clear();
   if (online) {
     online.close();
     online = null;
@@ -2352,6 +2380,8 @@ $('online-host').addEventListener('click', async () => {
     $('online-host-panel').classList.remove('hidden');
     return;
   }
+  myNickname = readMyNickname();
+  peerNicknames.clear();
   $('online-pick').classList.add('hidden');
   $('online-host-panel').classList.remove('hidden');
   $('host-code').textContent = '建立中...';
@@ -2367,6 +2397,7 @@ $('online-host').addEventListener('click', async () => {
     $('host-start').disabled = total < 2;
   };
   online.onPeerLeave = (peerId) => {
+    peerNicknames.delete(peerId);
     refreshHostPlayerList();
     const total = online.peerCount() + 1;
     $('host-status').textContent = total >= 2
@@ -2374,6 +2405,13 @@ $('online-host').addEventListener('click', async () => {
       : '等待對手加入...';
     $('host-status').className = 'online-status';
     $('host-start').disabled = total < 2;
+  };
+  // 大廳期間:接收 joiner 送來的 hello,把暱稱存進 peerNicknames
+  online.onMessage = (msg) => {
+    if (!msg || msg.type !== 'hello' || !msg.from) return;
+    const nick = sanitizeNickname(msg.nickname) || '玩家?';
+    peerNicknames.set(msg.from, nick);
+    refreshHostPlayerList();
   };
   try {
     const code = await online.hostRoom();
@@ -2391,14 +2429,15 @@ function refreshHostPlayerList() {
   const ul = $('host-player-list');
   ul.innerHTML = '';
   const meLi = document.createElement('li');
-  meLi.textContent = '玩家 1 (你 · 房主)';
+  meLi.textContent = (myNickname || '我') + ' (你 · 房主)';
   meLi.className = 'you';
   ul.appendChild(meLi);
   if (online) {
     online.conns.forEach((c, i) => {
       if (!c.open) return;
       const li = document.createElement('li');
-      li.textContent = '玩家 ' + (i + 2);
+      const nick = peerNicknames.get(c.peer);
+      li.textContent = nick || ('玩家 ' + (i + 2) + ' (連線中...)');
       ul.appendChild(li);
     });
   }
@@ -2408,9 +2447,13 @@ $('host-start').addEventListener('click', () => {
   if (!online || online.role !== 'host') return;
   const peerIds = online.connectedPeerIds();
   if (peerIds.length === 0) return;
-  // 建立 roster:host 為 slot 0,joiner 依連線順序填入 slot 1, 2, 3
-  const rosterData = [{ peerId: online.localId, slot: 0 }];
-  peerIds.forEach((id, i) => rosterData.push({ peerId: id, slot: i + 1 }));
+  // 建立 roster:host 為 slot 0,joiner 依連線順序填入 slot 1, 2, 3, 4
+  const rosterData = [{ peerId: online.localId, slot: 0, nickname: myNickname }];
+  peerIds.forEach((id, i) => rosterData.push({
+    peerId: id,
+    slot: i + 1,
+    nickname: peerNicknames.get(id) || generateRandomNickname(),
+  }));
   // 廣播 start 給所有 joiner
   online.send({ type: 'start', roster: rosterData });
   // host 自己也開始
@@ -2455,11 +2498,14 @@ async function doJoin() {
     return;
   }
   if (!code.startsWith('TETRIS-')) code = 'TETRIS-' + code;
+  myNickname = readMyNickname();
   $('join-status').textContent = '連線中...';
   $('join-status').className = 'online-status';
   online = new OnlineController();
   try {
     await online.joinRoom(code);
+    // 連上 host 後立刻把自己的暱稱送過去
+    online.send({ type: 'hello', nickname: myNickname });
     $('join-status').textContent = '已連線!等待房主開始遊戲...';
     $('join-status').className = 'online-status ok';
     // 大廳期間先設一個臨時 handler 等待 host 發送 start
