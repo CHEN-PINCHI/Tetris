@@ -222,7 +222,16 @@ class Game {
   }
 
   nextType() {
-    if (this.bag.length === 0) this.refillBag();
+    // 提前補包 — 保留至少 5 個 lookahead 給 NEXT 預覽顯示
+    if (this.bag.length <= 5) {
+      const fresh = [...TYPES];
+      for (let i = fresh.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [fresh[i], fresh[j]] = [fresh[j], fresh[i]];
+      }
+      // 新一包 prepend,舊的繼續先 pop 出來
+      this.bag = fresh.concat(this.bag);
+    }
     return this.bag.pop();
   }
 
@@ -969,55 +978,78 @@ class Game {
   // 華麗風方塊:漸層立體 + 圓角 + 鏡面高光
   drawGemBlock(ctx, px, py, size, type, alpha = 1) {
     const c = COLORS[type];
-    const r = Math.max(2, size * 0.18);
-    const inset = 1;
     ctx.save();
     ctx.globalAlpha = alpha;
 
-    // 圓角矩形路徑
-    ctx.beginPath();
-    if (ctx.roundRect) {
-      ctx.roundRect(px + inset, py + inset, size - inset * 2, size - inset * 2, r);
+    if (currentTheme === 'classic') {
+      // 經典 NES 風 — 純色 + 上左亮、下右暗的立體斜邊
+      const bevel = Math.max(2, size * 0.12);
+      ctx.fillStyle = c.mid;
+      ctx.fillRect(px, py, size, size);
+      ctx.fillStyle = c.light;
+      ctx.fillRect(px, py, size, bevel);
+      ctx.fillRect(px, py, bevel, size);
+      ctx.fillStyle = c.dark;
+      ctx.fillRect(px, py + size - bevel, size, bevel);
+      ctx.fillRect(px + size - bevel, py, bevel, size);
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px + 0.5, py + 0.5, size - 1, size - 1);
+    } else if (currentTheme === 'minimal') {
+      // 簡約 — 圓角實心 + 細描邊,無漸層無反光
+      const r = Math.max(2, size * 0.15);
+      const inset = 2;
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(px + inset, py + inset, size - inset * 2, size - inset * 2, r);
+      } else {
+        ctx.rect(px + inset, py + inset, size - inset * 2, size - inset * 2);
+      }
+      ctx.fillStyle = c.mid;
+      ctx.fill();
+      ctx.strokeStyle = c.dark;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     } else {
-      const x0 = px + inset, y0 = py + inset, w = size - inset * 2, h = size - inset * 2;
-      ctx.moveTo(x0 + r, y0);
-      ctx.arcTo(x0 + w, y0, x0 + w, y0 + h, r);
-      ctx.arcTo(x0 + w, y0 + h, x0, y0 + h, r);
-      ctx.arcTo(x0, y0 + h, x0, y0, r);
-      ctx.arcTo(x0, y0, x0 + w, y0, r);
-      ctx.closePath();
+      // neon (預設) — 寶石質感:圓角 + 漸層 + 反光 + 弧線高光
+      const r = Math.max(2, size * 0.18);
+      const inset = 1;
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(px + inset, py + inset, size - inset * 2, size - inset * 2, r);
+      } else {
+        const x0 = px + inset, y0 = py + inset, w = size - inset * 2, h = size - inset * 2;
+        ctx.moveTo(x0 + r, y0);
+        ctx.arcTo(x0 + w, y0, x0 + w, y0 + h, r);
+        ctx.arcTo(x0 + w, y0 + h, x0, y0 + h, r);
+        ctx.arcTo(x0, y0 + h, x0, y0, r);
+        ctx.arcTo(x0, y0, x0 + w, y0, r);
+        ctx.closePath();
+      }
+      const grad = ctx.createLinearGradient(px, py, px, py + size);
+      grad.addColorStop(0, c.light);
+      grad.addColorStop(0.45, c.mid);
+      grad.addColorStop(1, c.dark);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.strokeStyle = c.light;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      const shine = ctx.createRadialGradient(
+        px + size * 0.3, py + size * 0.25, 0,
+        px + size * 0.3, py + size * 0.25, size * 0.55
+      );
+      shine.addColorStop(0, 'rgba(255,255,255,0.55)');
+      shine.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = shine;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(px + size * 0.2, py + size * 0.78);
+      ctx.quadraticCurveTo(px + size * 0.5, py + size * 0.92, px + size * 0.8, py + size * 0.78);
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
     }
-
-    // 主漸層(上亮 → 中色 → 下暗)
-    const grad = ctx.createLinearGradient(px, py, px, py + size);
-    grad.addColorStop(0, c.light);
-    grad.addColorStop(0.45, c.mid);
-    grad.addColorStop(1, c.dark);
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    // 邊緣外光
-    ctx.strokeStyle = c.light;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // 左上反光(玻璃感)
-    const shine = ctx.createRadialGradient(
-      px + size * 0.3, py + size * 0.25, 0,
-      px + size * 0.3, py + size * 0.25, size * 0.55
-    );
-    shine.addColorStop(0, 'rgba(255,255,255,0.55)');
-    shine.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = shine;
-    ctx.fill();
-
-    // 底部高光線(陶瓷釉感)
-    ctx.beginPath();
-    ctx.moveTo(px + size * 0.2, py + size * 0.78);
-    ctx.quadraticCurveTo(px + size * 0.5, py + size * 0.92, px + size * 0.8, py + size * 0.78);
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
 
     ctx.restore();
   }
@@ -1105,10 +1137,13 @@ class Game {
     bg.addColorStop(1, '#0d0420');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, this.nextCanvas.width, this.nextCanvas.height);
-    const slotH = this.nextCanvas.height / 3;
+    // 顯示幾個 NEXT 由 canvas 高度自動推算 (預設每格 120 高 → 5 格 = 600 高 → 5 個 NEXT)
+    const count = Math.max(1, Math.round(this.nextCanvas.height / 120));
+    const slotH = this.nextCanvas.height / count;
     this.drawPreviewPiece(ctx, this.next.type, 5);
-    const peek = this.bag.slice(-2).reverse();
-    for (let i = 0; i < peek.length && i < 2; i++) {
+    // 第 2 個之後從 bag 末端往回看 (因為 bag 用 pop 取下一個)
+    const peek = this.bag.slice(-(count - 1)).reverse();
+    for (let i = 0; i < peek.length && i < count - 1; i++) {
       this.drawPreviewPiece(ctx, peek[i], slotH * (i + 1) + 5);
     }
   }
@@ -1842,6 +1877,7 @@ const STATE_SEND_INTERVAL = 50; // ms,每秒約 20 次快照
 let running = false;
 let paused = false;
 let muted = false;
+let currentTheme = 'neon';  // 'neon' | 'classic' | 'minimal' — 方塊渲染風格
 let lastTime = 0;
 let rafId = 0;
 
@@ -2788,4 +2824,18 @@ const Audio = (() => {
   const savedNick = Storage.get('nickname', '');
   const nickInput = document.getElementById('nickname-input');
   if (nickInput && savedNick) nickInput.value = savedNick;
+  // 還原方塊主題
+  const savedTheme = Storage.get('theme', 'neon');
+  if (['neon', 'classic', 'minimal'].includes(savedTheme)) currentTheme = savedTheme;
+  // 主題按鈕高亮 + 點擊切換
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    if (btn.dataset.theme === currentTheme) btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      const t = btn.dataset.theme;
+      if (!['neon', 'classic', 'minimal'].includes(t)) return;
+      currentTheme = t;
+      Storage.set('theme', t);
+      document.querySelectorAll('.theme-btn').forEach(b => b.classList.toggle('active', b === btn));
+    });
+  });
 })();

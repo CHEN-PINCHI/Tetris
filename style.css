@@ -276,6 +276,39 @@ canvas {
   text-transform: uppercase;
 }
 
+/* ===== 主題切換 ===== */
+.theme-picker {
+  margin-top: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.theme-label {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+.theme-buttons {
+  display: flex;
+  gap: 8px;
+}
+.theme-btn {
+  padding: 8px 18px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  min-width: 80px;
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.18), rgba(255, 77, 143, 0.18));
+}
+.theme-btn.active {
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.6), rgba(255, 77, 143, 0.6)) !important;
+  box-shadow:
+    0 6px 20px rgba(167, 139, 250, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+}
+
 .mode-buttons {
   display: flex;
   flex-direction: column;
