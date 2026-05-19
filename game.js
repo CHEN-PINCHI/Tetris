@@ -198,7 +198,7 @@ class Game {
     this.lastClearWasPC = false;
     this.lastClearWasDifficult = false;
     this.pendingGarbage = 0;
-    this.pendingGap = -1;
+    this.pendingGaps = [];  // 每一行待落垃圾的洞位置 (column index)
     this.gameOver = false;
     this.current = null;
     this.effects = [];
@@ -571,9 +571,10 @@ class Game {
     }
 
     if (attack > 0 && this.opponent) {
-      // 先抵銷自己待落下的垃圾
+      // 先抵銷自己待落下的垃圾 (從佇列前端開始扣)
       const cancel = Math.min(attack, this.pendingGarbage);
       this.pendingGarbage -= cancel;
+      this.pendingGaps.splice(0, cancel);
       attack -= cancel;
       this.updateGarbageBar();
       if (attack > 0) this.opponent.receiveGarbage(attack);
@@ -584,8 +585,15 @@ class Game {
 
   receiveGarbage(lines) {
     if (lines <= 0) return;
-    if (this.pendingGap === -1) {
-      this.pendingGap = Math.floor(Math.random() * COLS);
+    // messy 模式:每行獨立隨機;clean 模式:重用既有洞欄或新挑一個給整波用
+    let col;
+    if (!messyGarbage) {
+      col = this.pendingGaps.length > 0
+        ? this.pendingGaps[this.pendingGaps.length - 1]
+        : Math.floor(Math.random() * COLS);
+    }
+    for (let i = 0; i < lines; i++) {
+      this.pendingGaps.push(messyGarbage ? Math.floor(Math.random() * COLS) : col);
     }
     this.pendingGarbage += lines;
     this.updateGarbageBar();
@@ -598,7 +606,6 @@ class Game {
 
   applyPendingGarbage() {
     if (this.pendingGarbage <= 0) return;
-    const gap = this.pendingGap;
     const n = this.pendingGarbage;
     // 檢查推上去後最上方是否有方塊 → top out
     for (let i = 0; i < n; i++) {
@@ -611,11 +618,13 @@ class Game {
     for (let i = 0; i < n; i++) {
       this.board.shift();
       const row = Array(COLS).fill('G');
+      // 每行用各自的洞位置 (messy 時不同欄、clean 時同欄)
+      const gap = this.pendingGaps[i] ?? Math.floor(Math.random() * COLS);
       row[gap] = 0;
       this.board.push(row);
     }
     this.pendingGarbage = 0;
-    this.pendingGap = -1;
+    this.pendingGaps = [];
     this.updateGarbageBar();
   }
 
@@ -1878,6 +1887,7 @@ let running = false;
 let paused = false;
 let muted = false;
 let currentTheme = 'neon';  // 'neon' | 'classic' | 'minimal' — 方塊渲染風格
+let messyGarbage = false;   // false = 同一波垃圾同一欄洞 (PPT); true = 每行獨立隨機 (TETR.IO)
 let lastTime = 0;
 let rafId = 0;
 
@@ -2836,6 +2846,17 @@ const Audio = (() => {
       currentTheme = t;
       Storage.set('theme', t);
       document.querySelectorAll('.theme-btn').forEach(b => b.classList.toggle('active', b === btn));
+    });
+  });
+  // 垃圾洞模式還原 + 切換
+  messyGarbage = Storage.get('messyGarbage', false);
+  document.querySelectorAll('.garbage-btn').forEach(btn => {
+    const isMessy = btn.dataset.messy === 'true';
+    if (isMessy === messyGarbage) btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      messyGarbage = isMessy;
+      Storage.set('messyGarbage', isMessy);
+      document.querySelectorAll('.garbage-btn').forEach(b => b.classList.toggle('active', b === btn));
     });
   });
 })();
