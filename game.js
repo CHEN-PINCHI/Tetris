@@ -1887,7 +1887,8 @@ let running = false;
 let paused = false;
 let muted = false;
 let currentTheme = 'neon';  // 'neon' | 'classic' | 'minimal' — 方塊渲染風格
-let messyGarbage = false;   // false = 同一波垃圾同一欄洞 (PPT); true = 每行獨立隨機 (TETR.IO)
+let userMessyGarbage = false; // 使用者偏好 (UI 切換,持久化)
+let messyGarbage = false;   // 當前遊戲生效值 — 線上對戰時會被房主設定覆寫
 let lastTime = 0;
 let rafId = 0;
 
@@ -2103,7 +2104,8 @@ function prepareOnlineGameStart(rosterData) {
         checkWinnerOrEnd();
       }
     } else if (msg.type === 'start') {
-      // host 廣播重新開始 (rematch)
+      // host 廣播重新開始 (rematch) — 同步房主的垃圾洞模式
+      messyGarbage = !!msg.messyGarbage;
       prepareOnlineGameStart(msg.roster);
     }
   };
@@ -2268,7 +2270,9 @@ function tryStartRematch() {
   connectedPeers.forEach((id, i) => newRoster.push({
     peerId: id, slot: i + 1, nickname: nickOf(id),
   }));
-  online.send({ type: 'start', roster: newRoster });
+  // 重玩沿用房主目前的垃圾洞模式設定
+  online.send({ type: 'start', roster: newRoster, messyGarbage: userMessyGarbage });
+  messyGarbage = userMessyGarbage;
   prepareOnlineGameStart(newRoster);
 }
 
@@ -2459,6 +2463,8 @@ function backToMenu() {
   document.querySelectorAll('.player.p1, .player.p2').forEach(el => el.classList.remove('hidden'));
   document.querySelectorAll('.player').forEach(el => el.classList.remove('local-player'));
   peerNicknames.clear();
+  // 線上對戰可能曾覆寫 messyGarbage 為房主設定,離開後還原成使用者偏好
+  messyGarbage = userMessyGarbage;
   if (online) {
     online.close();
     online = null;
@@ -2643,9 +2649,10 @@ $('host-start').addEventListener('click', () => {
     slot: i + 1,
     nickname: peerNicknames.get(id) || generateRandomNickname(),
   }));
-  // 廣播 start 給所有 joiner
-  online.send({ type: 'start', roster: rosterData });
-  // host 自己也開始
+  // 廣播 start 給所有 joiner — 帶上房主的垃圾洞模式設定 (公平性)
+  online.send({ type: 'start', roster: rosterData, messyGarbage: userMessyGarbage });
+  // host 自己也開始 — 確保用自己 (= 房間) 的設定
+  messyGarbage = userMessyGarbage;
   prepareOnlineGameStart(rosterData);
 });
 $('copy-code').addEventListener('click', async () => {
@@ -2701,6 +2708,8 @@ async function doJoin() {
     online.onMessage = (msg) => {
       if (!msg || !msg.type) return;
       if (msg.type === 'start' && Array.isArray(msg.roster)) {
+        // 同步房主的垃圾洞模式 — 公平性
+        messyGarbage = !!msg.messyGarbage;
         prepareOnlineGameStart(msg.roster);
       }
     };
@@ -2849,11 +2858,13 @@ const Audio = (() => {
     });
   });
   // 垃圾洞模式還原 + 切換
-  messyGarbage = Storage.get('messyGarbage', false);
+  userMessyGarbage = Storage.get('messyGarbage', false);
+  messyGarbage = userMessyGarbage;
   document.querySelectorAll('.garbage-btn').forEach(btn => {
     const isMessy = btn.dataset.messy === 'true';
-    if (isMessy === messyGarbage) btn.classList.add('active');
+    if (isMessy === userMessyGarbage) btn.classList.add('active');
     btn.addEventListener('click', () => {
+      userMessyGarbage = isMessy;
       messyGarbage = isMessy;
       Storage.set('messyGarbage', isMessy);
       document.querySelectorAll('.garbage-btn').forEach(b => b.classList.toggle('active', b === btn));
