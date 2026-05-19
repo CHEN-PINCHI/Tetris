@@ -367,10 +367,10 @@ class Game {
       Audio.play(cleared === 4 || spinType ? 'tetris' : 'clear');
       this.shake = Math.min(16, 3 + cleared * 1.8 + (spinType ? 4 : 0));
 
-      // 大型文字飛字
-      const centerY = (fullRows[0] + fullRows[fullRows.length - 1] + 1) / 2 * this.blockSize;
-      this.spawnClearText(cleared, spinType, centerX, centerY);
-      this.spawnScorePopup(points, centerX, centerY - this.blockSize);
+      // 大型文字飛字 — 固定顯示在棋盤頂端,不擋操作區
+      const topY = this.blockSize * 2;
+      this.spawnClearText(cleared, spinType, centerX, topY);
+      this.spawnScorePopup(points, centerX, topY + this.blockSize * 1.6);
 
       // 額外特效
       if (cleared === 4) {
@@ -386,7 +386,7 @@ class Game {
 
       // 連消提示
       if (this.combo + 1 >= 2) {
-        this.spawnComboText(this.combo + 1, centerX, centerY + this.blockSize * 1.2);
+        this.spawnComboText(this.combo + 1, centerX, topY + this.blockSize * 3);
       }
 
       this.updateStats();
@@ -399,9 +399,9 @@ class Game {
       const points = basePoints * this.level;
       this.score += points;
       Audio.play('hold');
-      const cy = (this.current.y + 1) * this.blockSize;
-      this.spawnClearText(0, spinType, centerX, cy);
-      this.spawnScorePopup(points, centerX, cy - this.blockSize);
+      const topY = this.blockSize * 2;
+      this.spawnClearText(0, spinType, centerX, topY);
+      this.spawnScorePopup(points, centerX, topY + this.blockSize * 1.6);
       this.updateStats();
     }
     return cleared;
@@ -816,7 +816,8 @@ class Game {
       } else if (e.kind === 'textBurst') {
         const popT = Math.min(1, t * 5);
         const scale = e.startScale + (1 - Math.pow(1 - popT, 3)) * (e.endScale - e.startScale);
-        const a = t < 0.75 ? 1 : Math.max(0, (1 - t) * 4);
+        // 特效文字最大透明度上限 0.8 (位置已移到棋盤頂端,不會擋操作區)
+        const a = (t < 0.75 ? 1 : Math.max(0, (1 - t) * 4)) * 0.8;
         const ty = e.y - (e.rise || 0) * t;
         ctx.save();
         ctx.translate(e.x, ty);
