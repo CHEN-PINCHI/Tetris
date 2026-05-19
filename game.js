@@ -1453,6 +1453,36 @@ class AIController {
 }
 
 // ====== 線上對戰:PeerJS 連線封裝(支援多人,host 端 star topology) ======
+// ICE 伺服器設定 — STUN 用 Google 公共;TURN 用 OpenRelay 公共中繼(免註冊),
+// 當雙方 NAT/防火牆嚴格無法 P2P 直連時自動 fallback 走 TURN over TCP 443,
+// 看起來就跟一般 HTTPS 流量一樣,幾乎不會被擋。
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turns:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+  ],
+};
+
 class OnlineController {
   constructor() {
     this.peer = null;
@@ -1480,7 +1510,7 @@ class OnlineController {
     return new Promise((resolve, reject) => {
       this.role = 'host';
       this.code = this.generateCode();
-      this.peer = new Peer(this.code, { debug: 3 });
+      this.peer = new Peer(this.code, { debug: 3, config: ICE_SERVERS });
       let opened = false;
       this.peer.on('open', id => {
         this.localId = id;
@@ -1538,7 +1568,7 @@ class OnlineController {
     return new Promise((resolve, reject) => {
       this.role = 'join';
       this.code = code;
-      this.peer = new Peer(undefined, { debug: 3 });
+      this.peer = new Peer(undefined, { debug: 3, config: ICE_SERVERS });
       this.peer.on('open', id => {
         this.localId = id;
         this.hostConn = this.peer.connect(code, { reliable: true, serialization: 'json' });
