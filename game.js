@@ -140,7 +140,7 @@ function getKickTable(type, from, to) {
 //   maxLevel    : 限制 AI 的最大等級 (避免重力過快)
 const AI_DIFFICULTIES = {
   easy:   { name: '簡單', thinkDelay: 430, moveDelay: 165, topRatio: 0.32, useHold: false, lookahead: false, tetrisStyle: false, battle: false, attackWeight: 0,   maxLevel: 3 },
-  normal: { name: '一般', thinkDelay: 130, moveDelay: 52,  topRatio: 0.07, useHold: true,  lookahead: true,  tetrisStyle: false, battle: true,  attackWeight: 0.5, maxLevel: 8 },
+  normal: { name: '一般', thinkDelay: 95,  moveDelay: 38,  topRatio: 0.025, useHold: true,  lookahead: true,  tetrisStyle: false, battle: true,  attackWeight: 0.65, maxLevel: 10 },
   hard:   { name: '困難', thinkDelay: 26,  moveDelay: 16,  topRatio: 0,    useHold: true,  lookahead: true,  tetrisStyle: true,  battle: true,  attackWeight: 0.95, maxLevel: 15 },
 };
 
