@@ -1673,6 +1673,8 @@ class OnlineController {
     this.conns = [];             // host: 所有 joiner 連線;joiner: [hostConn]
     this.hostConn = null;        // joiner: 跟 host 的連線
     this.knownPeers = new Set(); // host: 曾經加入過的 peerId (用來辨識重連 vs 新加入)
+    this.bannedPeers = new Set(); // host: 被踢出的 peerId (拒絕重新連入)
+    this.onKicked = null;        // joiner: 被房主踢出
     this.onMessage = null;       // (msg) — msg.from 已被填上
     this.onPeerJoin = null;      // host only: (peerId)
     this.onPeerLeave = null;     // host only: (peerId)
@@ -1713,6 +1715,14 @@ class OnlineController {
         if (!this._destroyed) { try { this.peer.reconnect(); } catch {} }
       });
       this.peer.on('connection', conn => {
+        // 被踢出的玩家不得重新連入
+        if (this.bannedPeers.has(conn.peer)) {
+          conn.on('open', () => {
+            try { conn.send({ type: 'kicked' }); } catch {}
+            setTimeout(() => { try { conn.close(); } catch {} }, 300);
+          });
+          return;
+        }
         const isReconnect = this.knownPeers.has(conn.peer);
         // 新加入才檢查 5 人上限;重連不受限 (座位本來就是他的)
         if (!isReconnect && this.conns.length >= 4) {
@@ -1905,6 +1915,20 @@ class OnlineController {
 
   _handleError(err) {
     console.error('[Online] error:', err);
+  }
+
+  // host: 踢出某個 joiner — 通知對方、關閉連線、加入封鎖名單
+  kick(peerId) {
+    if (this.role !== 'host' || !peerId) return;
+    this.bannedPeers.add(peerId);
+    this.knownPeers.delete(peerId);
+    const c = this.conns.find(c => c.peer === peerId);
+    if (c) {
+      try { c.send({ type: 'kicked' }); } catch {}
+      // 留一點時間讓 kicked 訊息送達再關閉
+      setTimeout(() => { try { c.close(); } catch {} }, 300);
+      this.conns = this.conns.filter(x => x !== c);
+    }
   }
 
   close() {
@@ -2949,10 +2973,34 @@ function refreshHostPlayerList() {
       if (!c.open) return;
       const li = document.createElement('li');
       const nick = peerNicknames.get(c.peer);
-      li.textContent = nick || ('玩家 ' + (i + 2) + ' (連線中...)');
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'player-name';
+      nameSpan.textContent = nick || ('玩家 ' + (i + 2) + ' (連線中...)');
+      li.appendChild(nameSpan);
+      // 房主可踢出此玩家
+      const kickBtn = document.createElement('button');
+      kickBtn.className = 'kick-btn';
+      kickBtn.textContent = '踢出';
+      kickBtn.type = 'button';
+      const peerId = c.peer;
+      kickBtn.addEventListener('click', () => kickPlayer(peerId));
+      li.appendChild(kickBtn);
       ul.appendChild(li);
     });
   }
+}
+
+function kickPlayer(peerId) {
+  if (!online || online.role !== 'host') return;
+  online.kick(peerId);
+  peerNicknames.delete(peerId);
+  refreshHostPlayerList();
+  const total = online.peerCount() + 1;
+  $('host-status').textContent = total >= 2
+    ? `已加入 ${total} 人 — 點「開始遊戲」開局`
+    : '等待對手加入...';
+  $('host-status').className = 'online-status';
+  $('host-start').disabled = total < 2;
 }
 
 $('host-start').addEventListener('click', () => {
@@ -2998,6 +3046,24 @@ $('online-join').addEventListener('click', () => {
   $('join-status').className = 'online-status';
   $('join-code').focus();
 });
+// joiner: 被房主踢出 — 回到加入面板顯示提示,不再嘗試重連
+function handleKicked() {
+  showLocalReconnectOverlay(false);
+  localFrozen = false;
+  running = false;
+  Audio.stopBgm();
+  if (online) { online.close(); online = null; }
+  // 回到線上大廳的加入面板
+  $('game-overlay').classList.add('hidden');
+  $('battle-layout').classList.add('hidden');
+  $('online-select').classList.remove('hidden');
+  $('online-pick').classList.add('hidden');
+  $('online-host-panel').classList.add('hidden');
+  $('online-join-panel').classList.remove('hidden');
+  $('join-status').textContent = '你已被房主移除';
+  $('join-status').className = 'online-status err';
+}
+
 async function doJoin() {
   if (typeof Peer === 'undefined') {
     $('join-status').textContent = '無法載入 PeerJS — 請檢查網路';
@@ -3028,8 +3094,11 @@ async function doJoin() {
         // 同步房主的垃圾洞模式 — 公平性
         messyGarbage = !!msg.messyGarbage;
         prepareOnlineGameStart(msg.roster);
+      } else if (msg.type === 'kicked') {
+        handleKicked();
       }
     };
+    online.onKicked = handleKicked;
     online.onClose = () => {
       $('join-status').textContent = '主機已關閉房間';
       $('join-status').className = 'online-status err';

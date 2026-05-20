@@ -878,6 +878,7 @@ canvas {
   content: '◆';
   color: var(--rose);
   font-size: 10px;
+  flex-shrink: 0;
 }
 .player-list li.you::before {
   content: '★';
@@ -885,6 +886,22 @@ canvas {
 }
 .player-list li.you { color: var(--gold); }
 .player-list:empty { display: none; }
+.player-list .player-name { flex: 1; }
+.kick-btn {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  min-width: auto;
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.3), rgba(225, 29, 72, 0.3));
+  border: 1px solid rgba(244, 63, 94, 0.5);
+  border-radius: 8px;
+  text-transform: none;
+}
+.kick-btn:hover {
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.7), rgba(225, 29, 72, 0.7));
+  box-shadow: 0 4px 16px rgba(244, 63, 94, 0.5);
+}
 
 .start-btn {
   margin-top: 14px;
