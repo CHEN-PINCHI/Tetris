@@ -235,12 +235,19 @@ canvas {
   content: 'TETRIS';
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.95) 50%, transparent 70%);
-  background-size: 200% 100%;
+  /* 亮帶置於 300% 寬漸層的正中央,兩側大片透明 —
+     掃光起點/終點都落在透明區,loop 收尾無縫銜接不會跳動 */
+  background: linear-gradient(110deg,
+    transparent 0%, transparent 46%,
+    rgba(255,255,255,0.95) 50%,
+    transparent 54%, transparent 100%);
+  background-size: 300% 100%;
+  background-position: 0% 0;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: shine 3.5s ease-in-out infinite;
+  animation: shine 4s linear infinite;
+  will-change: background-position;
   pointer-events: none;
 }
 @keyframes shimmer {
@@ -252,9 +259,9 @@ canvas {
   to   { filter: drop-shadow(0 4px 24px rgba(255, 77, 143, 0.5)) drop-shadow(0 0 16px rgba(167, 139, 250, 0.5)) hue-rotate(360deg); }
 }
 @keyframes shine {
-  0% { background-position: 200% 0; }
-  60% { background-position: -100% 0; }
-  100% { background-position: -100% 0; }
+  0%   { background-position: 0% 0; }    /* 亮帶在左側透明區外 */
+  40%  { background-position: 100% 0; }  /* 掃過文字到右側透明區外 */
+  100% { background-position: 100% 0; }  /* 停留 (透明) — 與 0% 同為透明,無縫接回 */
 }
 
 .subtitle {
