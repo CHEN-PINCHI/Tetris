@@ -1655,22 +1655,23 @@ function readMyNickname() {
 
 // ====== 線上對戰:PeerJS 連線封裝(支援多人,host 端 star topology) ======
 // ICE 伺服器設定 — STUN 給 P2P 直連使用;TURN 在雙方 NAT/防火牆嚴格時
-// 自動 fallback 走中繼,確保總是能通。TURN 同時提供 UDP 與 TCP 兩種傳輸,
-// UDP 被防火牆擋掉時會自動退到 TCP。
+// 自動 fallback 走中繼。為了穿透「只放行 80/443」的公司/學校/家用防火牆,
+// TURN 同時開 3478 / 443 / 80 三個埠 (UDP + TCP);其中 TCP-over-443
+// 看起來等同一般網路流量,最不容易被擋。
+const TURN_USER = '000000002094566530';
+const TURN_CRED = 'QN0kvKv9uptzayAUziqPkDpOPjU=';
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    {
-      urls: 'turn:free.expressturn.com:3478',
-      username: '000000002094566530',
-      credential: 'QN0kvKv9uptzayAUziqPkDpOPjU=',
-    },
-    {
-      urls: 'turn:free.expressturn.com:3478?transport=tcp',
-      username: '000000002094566530',
-      credential: 'QN0kvKv9uptzayAUziqPkDpOPjU=',
-    },
+    // 標準 TURN 埠 (UDP 最快,直連失敗時優先)
+    { urls: 'turn:free.expressturn.com:3478', username: TURN_USER, credential: TURN_CRED },
+    { urls: 'turn:free.expressturn.com:3478?transport=tcp', username: TURN_USER, credential: TURN_CRED },
+    // 443 埠 — 穿透只放行 HTTPS 的嚴格防火牆 (最關鍵)
+    { urls: 'turn:free.expressturn.com:443', username: TURN_USER, credential: TURN_CRED },
+    { urls: 'turn:free.expressturn.com:443?transport=tcp', username: TURN_USER, credential: TURN_CRED },
+    // 80 埠 — 部分網路只放行 HTTP
+    { urls: 'turn:free.expressturn.com:80?transport=tcp', username: TURN_USER, credential: TURN_CRED },
   ],
 };
 
