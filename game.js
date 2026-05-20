@@ -2526,9 +2526,34 @@ function beginLoop() {
   Audio.startBgm();
   lastTime = performance.now();
   startCountdown();
+  fitActiveLayout();
   cancelAnimationFrame(rafId);
   rafId = requestAnimationFrame(mainLoop);
 }
+
+// RWD:遊戲畫面是固定像素的 canvas,量測自然尺寸後用 zoom 等比例縮放到
+// 剛好放進視窗,維持原始比例不破版。zoom 會實際縮小排版盒,置中與不溢出
+// 都由 body 的 flex 置中處理。
+function fitActiveLayout() {
+  const single = $('single-layout');
+  const battle = $('battle-layout');
+  // 先清掉縮放再量測自然尺寸
+  const gw = single && single.querySelector('.game-wrap');
+  if (gw) gw.style.zoom = '';
+  if (battle) battle.style.zoom = '';
+  let target = null;
+  if (single && !single.classList.contains('hidden')) target = gw;
+  else if (battle && !battle.classList.contains('hidden')) target = battle; // 含工具列一起縮
+  if (!target) return;
+  const natW = target.offsetWidth;
+  const natH = target.offsetHeight;
+  if (!natW || !natH) return;
+  const availW = window.innerWidth - 16;
+  const availH = window.innerHeight - 16;
+  const scale = Math.min(1, availW / natW, availH / natH);
+  if (scale < 1) target.style.zoom = scale;
+}
+window.addEventListener('resize', fitActiveLayout);
 
 function startCountdown() {
   countdownPhase = 3;

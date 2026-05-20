@@ -36,7 +36,7 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 24px;
+  padding: clamp(8px, 2vw, 24px);
   overflow: auto;
   position: relative;
 }
@@ -188,7 +188,7 @@ canvas {
 
 .screen-inner {
   text-align: center;
-  padding: 48px;
+  padding: clamp(24px, 5vw, 48px);
   background: var(--bg-soft);
   border: 1px solid var(--border-soft);
   border-radius: 24px;
@@ -198,6 +198,10 @@ canvas {
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
   position: relative;
   overflow: hidden;
+  /* 視窗太小時內容可捲動,不溢出畫面 */
+  max-width: 94vw;
+  max-height: 94vh;
+  overflow-y: auto;
 }
 .screen-inner::before {
   content: '';
@@ -214,10 +218,10 @@ canvas {
 
 .title {
   font-family: 'Cinzel', 'Orbitron', serif;
-  font-size: 96px;
+  font-size: clamp(44px, 11vw, 96px);
   font-weight: 700;
   margin: 0 0 12px;
-  letter-spacing: 14px;
+  letter-spacing: clamp(5px, 1.6vw, 14px);
   background: linear-gradient(135deg,
     #ffd9ec 0%, var(--rose) 20%, var(--gold) 35%,
     var(--violet) 55%, var(--cyan) 75%, var(--emerald) 90%, #ffd9ec 100%);
@@ -331,7 +335,8 @@ canvas {
   align-items: center;
 }
 .mode-buttons button {
-  min-width: 320px;
+  min-width: min(320px, 78vw);
+  max-width: 100%;
   padding: 18px 24px;
   font-size: 15px;
   letter-spacing: 3px;
@@ -757,11 +762,12 @@ canvas {
   gap: 10px;
   justify-content: center;
   align-items: center;
+  flex-wrap: wrap;
   margin-bottom: 16px;
 }
 .room-code-box code {
   font-family: 'Orbitron', monospace;
-  font-size: 22px;
+  font-size: clamp(16px, 4.5vw, 22px);
   font-weight: 700;
   letter-spacing: 4px;
   padding: 12px 20px;
@@ -773,7 +779,8 @@ canvas {
     inset 0 0 12px rgba(167, 139, 250, 0.2),
     0 4px 16px rgba(167, 139, 250, 0.15);
   user-select: all;
-  min-width: 220px;
+  min-width: min(220px, 70vw);
+  max-width: 100%;
   text-align: center;
 }
 .room-code-box button {
@@ -793,7 +800,8 @@ canvas {
   letter-spacing: 1px;
   text-align: center;
   padding: 12px 18px;
-  min-width: 320px;
+  min-width: min(320px, 80vw);
+  max-width: 100%;
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(167, 139, 250, 0.4);
   border-radius: 12px;
@@ -818,6 +826,7 @@ canvas {
   gap: 10px;
   justify-content: center;
   align-items: center;
+  flex-wrap: wrap;
   margin-bottom: 16px;
 }
 .join-input-row input {
@@ -827,7 +836,8 @@ canvas {
   letter-spacing: 3px;
   text-align: center;
   padding: 12px 16px;
-  min-width: 240px;
+  min-width: min(240px, 72vw);
+  max-width: 100%;
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(167, 139, 250, 0.4);
   border-radius: 10px;
@@ -866,7 +876,8 @@ canvas {
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(167, 139, 250, 0.25);
   border-radius: 10px;
-  min-width: 280px;
+  min-width: min(280px, 80vw);
+  max-width: 100%;
   text-align: left;
 }
 .player-list li {
@@ -912,7 +923,8 @@ canvas {
 
 .start-btn {
   margin-top: 14px;
-  min-width: 240px;
+  min-width: min(240px, 78vw);
+  max-width: 100%;
   padding: 14px 22px;
   font-size: 14px;
   letter-spacing: 4px;
@@ -1074,7 +1086,7 @@ canvas {
 }
 .tutorial-card .tut-visual {
   font-family: 'Orbitron', monospace;
-  font-size: 13px;
+  font-size: clamp(11px, 3vw, 13px);
   line-height: 1.5;
   white-space: pre;
   text-align: center;
@@ -1084,6 +1096,7 @@ canvas {
   padding: 14px;
   margin: 14px 0;
   letter-spacing: 1px;
+  overflow-x: auto;  /* 窄螢幕 ASCII 圖可橫向捲動,不溢出卡片 */
 }
 .tutorial-card .tut-key {
   display: inline-block;
