@@ -175,7 +175,7 @@ class Game {
 
     this.inputState = {
       leftHeld: false, rightHeld: false, downHeld: false,
-      dasTimer: 0, arrTimer: 0,
+      dasTimer: 0, arrTimer: 0, softTimer: 0,
     };
 
     this.reset();
@@ -211,14 +211,6 @@ class Game {
     this.spawn();
     this.updateStats();
     this.updateGarbageBar();
-  }
-
-  refillBag() {
-    this.bag = [...TYPES];
-    for (let i = this.bag.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
-    }
   }
 
   nextType() {
@@ -360,6 +352,12 @@ class Game {
       const prev = this.held;
       this.held = this.current.type;
       this.current = this.makePiece(prev);
+      // 與 spawn 一致:重置 lock 狀態,並檢查換出的方塊是否一出生就卡住 (頂出)
+      this.lockTimer = 0;
+      this.lockResetCount = 0;
+      this.lastActionIsRotate = false;
+      this.lastRotationKicked = false;
+      if (this.collides(this.current)) this.endGame();
     } else {
       this.held = this.current.type;
       this.spawn();
@@ -1274,8 +1272,8 @@ class Game {
     if (s.rightHeld && now - s.dasTimer > DAS_MS && now - s.arrTimer > ARR_MS) {
       this.move(1); s.arrTimer = now;
     }
-    if (s.downHeld && now - s.arrTimer > 50) {
-      this.softDrop(); s.arrTimer = now;
+    if (s.downHeld && now - s.softTimer > 50) {
+      this.softDrop(); s.softTimer = now;
     }
   }
 
@@ -1298,6 +1296,7 @@ class Game {
     if (c.down.includes(code)) {
       this.softDrop();
       this.inputState.downHeld = true;
+      this.inputState.softTimer = performance.now();
       return true;
     }
     if (c.rotateCW.includes(code))  { this.tryRotate(1);  return true; }
@@ -1975,6 +1974,7 @@ class RemoteGame extends Game {
     this.score = s.score || 0;
     this.lines = s.lines || 0;
     this.combo = s.combo || 0;
+    this.b2bCount = s.b2bCount || 0;
     this.pendingGarbage = s.pendingGarbage || 0;
     this.updateStats();
     this.updateGarbageBar();
@@ -1993,7 +1993,6 @@ let mySlot = -1;
 let myNickname = '';      // 本地玩家暱稱 (進入房間時設定)
 const peerNicknames = new Map(); // peerId → nickname (host 用,儲存 joiner 暱稱)
 let localRematchReady = false;
-let peerRematchReady = false;
 let rematchVotes = new Set(); // 多人 rematch — 已投票的 peer id 集合
 const reconnectTimers = new Map(); // host: peerId → 寬限期淘汰倒數 timer
 let localFrozen = false;    // 本地玩家重連期間凍結遊戲 (避免盲目陣亡)
@@ -2105,7 +2104,6 @@ function prepareOnlineGameStart(rosterData) {
   cpuAI = null;
   stateSendAccum = 0;
   localRematchReady = false;
-  peerRematchReady = false;
   rematchVotes.clear();
   resetRematchButton();
 
@@ -2378,7 +2376,6 @@ function endMatchMultiplayer(winner) {
   }
   // 重置投票狀態,進入「再來一場」階段
   localRematchReady = false;
-  peerRematchReady = false;
   rematchVotes.clear();
   if (online && online.role === 'host') {
     // host 計算目前在場人數並廣播權威狀態
@@ -2397,16 +2394,6 @@ function endMatchHostDisconnect() {
   $('overlay-text').textContent = '主機已斷線,遊戲中止';
   $('overlay-restart').classList.add('hidden');
   $('game-overlay').classList.remove('hidden');
-}
-
-function endMatchDisconnect() {
-  running = false;
-  Audio.stopBgm();
-  const overlay = $('game-overlay');
-  $('overlay-title').textContent = 'DISCONNECTED';
-  $('overlay-text').textContent = '對手已斷線';
-  $('overlay-restart').classList.add('hidden');
-  overlay.classList.remove('hidden');
 }
 
 function resetRematchButton() {
@@ -2510,6 +2497,7 @@ function buildBoardSnapshot(g) {
     score: g.score,
     lines: g.lines,
     combo: g.combo,
+    b2bCount: g.b2bCount,
     pendingGarbage: g.pendingGarbage,
   };
 }
@@ -2650,6 +2638,8 @@ function togglePause() {
     const overlay = $('game-overlay');
     $('overlay-title').textContent = 'PAUSED';
     $('overlay-text').textContent = '按 P 或 Enter 繼續';
+    // 暫停選單不顯示「再來一場」,只保留返回選單
+    $('overlay-restart').classList.add('hidden');
     overlay.classList.remove('hidden');
   } else {
     $('game-overlay').classList.add('hidden');
@@ -2662,6 +2652,24 @@ function toggleMute() {
   muted = !muted;
   Audio.setMuted(muted);
   Storage.set('muted', muted);
+}
+
+// 關閉線上連線 — host 會先廣播 room-closed 並延遲關閉,確保訊息送達後
+// joiner 才斷線 (避免空等重連);joiner 直接關閉。
+function closeOnlineConnection() {
+  if (!online) return;
+  if (online.role === 'host') {
+    const dying = online;
+    online = null;
+    dying.onPeerLeave = null;
+    dying.onPeerReconnect = null;
+    dying.onMessage = null;
+    try { dying.send({ type: 'room-closed' }); } catch {}
+    setTimeout(() => { try { dying.close(); } catch {} }, 300);
+  } else {
+    online.close();
+    online = null;
+  }
 }
 
 function backToMenu() {
@@ -2690,25 +2698,8 @@ function backToMenu() {
   localFrozen = false;
   // 線上對戰可能曾覆寫 messyGarbage 為房主設定,離開後還原成使用者偏好
   messyGarbage = userMessyGarbage;
-  if (online) {
-    if (online.role === 'host') {
-      // host 主動離開 → 通知所有 joiner 房間關閉,讓他們立即移除「再來一場」。
-      // WebRTC 送資料是非同步的,若馬上 close() 訊息會來不及送出,
-      // 因此先解除 callback、發訊息,延遲 300ms 再真正關閉以確保送達。
-      const dying = online;
-      online = null;
-      dying.onPeerLeave = null;
-      dying.onPeerReconnect = null;
-      dying.onMessage = null;
-      try { dying.send({ type: 'room-closed' }); } catch {}
-      setTimeout(() => { try { dying.close(); } catch {} }, 300);
-    } else {
-      online.close();
-      online = null;
-    }
-  }
+  closeOnlineConnection();
   localRematchReady = false;
-  peerRematchReady = false;
   resetRematchButton();
   $('single-layout').classList.add('hidden');
   $('battle-layout').classList.add('hidden');
@@ -2913,7 +2904,7 @@ $('btn-online').addEventListener('click', () => {
   $('online-select').classList.remove('hidden');
 });
 $('online-back').addEventListener('click', () => {
-  if (online) { online.close(); online = null; }
+  closeOnlineConnection();
   $('online-select').classList.add('hidden');
   $('mode-select').classList.remove('hidden');
 });
