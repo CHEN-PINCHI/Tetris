@@ -2187,6 +2187,24 @@ function prepareOnlineGameStart(rosterData) {
       }
     } else if (msg.type === 'rematch') {
       handlePeerRematch(msg.from);
+    } else if (msg.type === 'rematch-state') {
+      // joiner: 收到 host 廣播的權威票數,渲染按鈕
+      if (online.role !== 'host') {
+        renderRematchButton(msg.voted | 0, msg.total | 0, !!msg.available);
+      }
+    } else if (msg.type === 'room-closed') {
+      // host 關閉房間 → 立即結束,不再嘗試重連
+      if (online.role !== 'host') {
+        showLocalReconnectOverlay(false);
+        localFrozen = false;
+        if (online) online._destroyed = true; // 阻止自動重連
+        running = false;
+        Audio.stopBgm();
+        $('overlay-title').textContent = 'DISCONNECTED';
+        $('overlay-text').textContent = '房主已關閉房間';
+        $('overlay-restart').classList.add('hidden');
+        $('game-overlay').classList.remove('hidden');
+      }
     } else if (msg.type === 'peer-left') {
       // host 廣播某玩家離開 — joiner 端標記淘汰
       const p = roster.find(p => p.peerId === msg.peerId);
@@ -2211,6 +2229,12 @@ function prepareOnlineGameStart(rosterData) {
   // host 端:遊戲中有玩家斷線 → 先給寬限期等待重連,逾時才判定淘汰
   if (online.role === 'host') {
     online.onPeerLeave = (peerId) => {
+      // 不在遊戲中 (結束畫面投票階段) → 視為真正離開,清掉其票數並重算
+      if (!running) {
+        rematchVotes.delete(peerId);
+        recomputeRematchHost();
+        return;
+      }
       const p = roster.find(p => p.peerId === peerId);
       if (!p || !p.alive) return;
       // 已在等待重連 → 不重複起算
@@ -2328,12 +2352,17 @@ function endMatchMultiplayer(winner) {
     title.textContent = 'YOU LOSE';
     text.textContent = `${winner.nickname || ('玩家' + (winner.slot + 1))} 獲勝`;
   }
-  restartBtn.textContent = '再來一場';
-  restartBtn.disabled = false;
-  restartBtn.classList.remove('hidden');
+  // 重置投票狀態,進入「再來一場」階段
   localRematchReady = false;
   peerRematchReady = false;
   rematchVotes.clear();
+  if (online && online.role === 'host') {
+    // host 計算目前在場人數並廣播權威狀態
+    recomputeRematchHost();
+  } else {
+    // joiner 先用 roster 人數顯示暫定按鈕,等 host 的 rematch-state 校正
+    renderRematchButton(0, roster.length, roster.length >= 2);
+  }
   overlay.classList.remove('hidden');
 }
 
@@ -2363,42 +2392,68 @@ function resetRematchButton() {
   btn.classList.remove('hidden');
 }
 
+// 統一渲染「再來一場」按鈕 — voted/total 由 host 權威提供,available=能否再戰(≥2人)
+function renderRematchButton(voted, total, available) {
+  const btn = $('overlay-restart');
+  if (!available) {
+    // 人數不足 — 拿掉再來一場,只能返回選單
+    btn.classList.add('hidden');
+    const text = $('overlay-text');
+    if (text) text.textContent = '對手已離開,無法再來一場';
+    return;
+  }
+  btn.classList.remove('hidden');
+  if (localRematchReady) {
+    btn.textContent = `等待中 (${voted}/${total})`;
+    btn.disabled = true;
+  } else {
+    btn.textContent = `再來一場 (${voted}/${total})`;
+    btn.disabled = false;
+  }
+}
+
 function onlineRequestRematch() {
   if (mode !== 'online' || !online || !online.isReady()) return;
-  if (rematchVotes.has(online.localId)) return;
+  if (localRematchReady) return;
+  localRematchReady = true;
   rematchVotes.add(online.localId);
   online.send({ type: 'rematch' });
-  updateRematchButton();
-  tryStartRematch();
+  if (online.role === 'host') {
+    recomputeRematchHost();
+  } else {
+    // joiner 先樂觀更新自己的按鈕,等 host 廣播 rematch-state 校正
+    const btn = $('overlay-restart');
+    btn.textContent = '等待中...';
+    btn.disabled = true;
+  }
 }
 
 function handlePeerRematch(fromId) {
   if (!fromId) return;
   rematchVotes.add(fromId);
-  updateRematchButton();
-  tryStartRematch();
+  // 只有 host 統計票數並廣播;joiner 收到別人投票交給 host 處理
+  if (online && online.role === 'host') recomputeRematchHost();
 }
 
-function updateRematchButton() {
-  const btn = $('overlay-restart');
-  if (!online) return;
-  const connectedPeers = online.connectedPeerIds();
-  const totalNeeded = connectedPeers.length + 1;
-  const got = rematchVotes.size;
-  if (rematchVotes.has(online.localId)) {
-    btn.textContent = `等待中 (${got}/${totalNeeded})`;
-    btn.disabled = true;
-  } else {
-    btn.textContent = `再來一場 (${got}/${totalNeeded})`;
-    btn.disabled = false;
-  }
+// host 專用:計算目前在場人數與有效票數,廣播給所有 joiner,並嘗試開局
+function recomputeRematchHost() {
+  if (!online || online.role !== 'host') return;
+  const participants = [online.localId, ...online.connectedPeerIds()];
+  const total = participants.length;
+  const voted = participants.filter(id => rematchVotes.has(id)).length;
+  const available = total >= 2;
+  // 廣播權威狀態給所有 joiner
+  online.send({ type: 'rematch-state', voted, total, available });
+  // 更新 host 自己的按鈕
+  renderRematchButton(voted, total, available);
+  tryStartRematch();
 }
 
 function tryStartRematch() {
   if (!online || online.role !== 'host') return;
   if (running) return; // 遊戲進行中不重啟
   const connectedPeers = online.connectedPeerIds();
-  if (connectedPeers.length === 0) return;
+  if (connectedPeers.length === 0) return; // 剩自己一人無法再戰
   const allParticipants = [online.localId, ...connectedPeers];
   const allVoted = allParticipants.every(id => rematchVotes.has(id));
   if (!allVoted) return;
@@ -2612,6 +2667,10 @@ function backToMenu() {
   // 線上對戰可能曾覆寫 messyGarbage 為房主設定,離開後還原成使用者偏好
   messyGarbage = userMessyGarbage;
   if (online) {
+    // host 主動離開 → 先通知所有 joiner 房間關閉,避免他們空等重連
+    if (online.role === 'host') {
+      try { online.send({ type: 'room-closed' }); } catch {}
+    }
     online.close();
     online = null;
   }
