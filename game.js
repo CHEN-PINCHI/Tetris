@@ -2691,12 +2691,21 @@ function backToMenu() {
   // 線上對戰可能曾覆寫 messyGarbage 為房主設定,離開後還原成使用者偏好
   messyGarbage = userMessyGarbage;
   if (online) {
-    // host 主動離開 → 先通知所有 joiner 房間關閉,避免他們空等重連
     if (online.role === 'host') {
-      try { online.send({ type: 'room-closed' }); } catch {}
+      // host 主動離開 → 通知所有 joiner 房間關閉,讓他們立即移除「再來一場」。
+      // WebRTC 送資料是非同步的,若馬上 close() 訊息會來不及送出,
+      // 因此先解除 callback、發訊息,延遲 300ms 再真正關閉以確保送達。
+      const dying = online;
+      online = null;
+      dying.onPeerLeave = null;
+      dying.onPeerReconnect = null;
+      dying.onMessage = null;
+      try { dying.send({ type: 'room-closed' }); } catch {}
+      setTimeout(() => { try { dying.close(); } catch {} }, 300);
+    } else {
+      online.close();
+      online = null;
     }
-    online.close();
-    online = null;
   }
   localRematchReady = false;
   peerRematchReady = false;
@@ -3096,6 +3105,11 @@ async function doJoin() {
         prepareOnlineGameStart(msg.roster);
       } else if (msg.type === 'kicked') {
         handleKicked();
+      } else if (msg.type === 'room-closed') {
+        if (online) online._destroyed = true; // 停止自動重連
+        $('join-status').textContent = '房主已關閉房間';
+        $('join-status').className = 'online-status err';
+        if (online) { online.close(); online = null; }
       }
     };
     online.onKicked = handleKicked;
