@@ -1659,6 +1659,11 @@ const ICE_SERVERS = {
   ],
 };
 
+// 本次頁面 session 的穩定 client id — joiner 用它當 Peer id,
+// 斷線重連時沿用同一個 id,host 才能辨識為同一玩家 (roster / 垃圾路由不亂)
+const MY_CLIENT_ID = 'tetc-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+const RECONNECT_GRACE_MS = 15000; // 斷線後保留座位等待重連的寬限時間
+
 class OnlineController {
   constructor() {
     this.peer = null;
@@ -1667,11 +1672,17 @@ class OnlineController {
     this.localId = null;         // 自己的 peer id
     this.conns = [];             // host: 所有 joiner 連線;joiner: [hostConn]
     this.hostConn = null;        // joiner: 跟 host 的連線
+    this.knownPeers = new Set(); // host: 曾經加入過的 peerId (用來辨識重連 vs 新加入)
     this.onMessage = null;       // (msg) — msg.from 已被填上
     this.onPeerJoin = null;      // host only: (peerId)
     this.onPeerLeave = null;     // host only: (peerId)
+    this.onPeerReconnect = null; // host only: (peerId) — 既有玩家重連回來
     this.onReady = null;         // joiner: 與 host 連上
-    this.onClose = null;         // joiner: host 斷線
+    this.onClose = null;         // joiner: host 斷線 (寬限期過後仍未重連)
+    this.onReconnecting = null;  // joiner: 開始嘗試重連
+    this.onReconnected = null;   // joiner: 重連成功
+    this._reconnecting = false;  // joiner: 是否正在重連中
+    this._destroyed = false;     // close() 後不再自動重連
   }
 
   generateCode() {
@@ -1697,22 +1708,37 @@ class OnlineController {
         if (!opened) reject(err);
         else this._handleError(err);
       });
+      // 信令連線掉線 → 自動重連 (保留同一個 peer id = 房間碼)
+      this.peer.on('disconnected', () => {
+        if (!this._destroyed) { try { this.peer.reconnect(); } catch {} }
+      });
       this.peer.on('connection', conn => {
-        // 5 人上限 — host + 4 joiner
-        if (this.conns.length >= 4) {
+        const isReconnect = this.knownPeers.has(conn.peer);
+        // 新加入才檢查 5 人上限;重連不受限 (座位本來就是他的)
+        if (!isReconnect && this.conns.length >= 4) {
           try { conn.close(); } catch {}
           return;
         }
+        // 重連:移除同 peerId 的舊連線物件,換成新的
+        if (isReconnect) {
+          this.conns = this.conns.filter(c => c.peer !== conn.peer);
+        }
         this.conns.push(conn);
-        this._wireHostConn(conn);
+        this._wireHostConn(conn, isReconnect);
       });
     });
   }
 
-  _wireHostConn(conn) {
-    conn.on('open', () => this.onPeerJoin && this.onPeerJoin(conn.peer));
+  _wireHostConn(conn, isReconnect = false) {
+    conn.on('open', () => {
+      this.knownPeers.add(conn.peer);
+      if (isReconnect) this.onPeerReconnect && this.onPeerReconnect(conn.peer);
+      else this.onPeerJoin && this.onPeerJoin(conn.peer);
+    });
     conn.on('data', data => this._routeFromPeer(data, conn));
     conn.on('close', () => {
+      // 只有當前這個 conn 物件仍在清單時才處理 (避免重連後舊 conn 的 close 誤判)
+      if (!this.conns.includes(conn)) return;
       this.conns = this.conns.filter(c => c !== conn);
       this.onPeerLeave && this.onPeerLeave(conn.peer);
     });
@@ -1744,7 +1770,8 @@ class OnlineController {
     return new Promise((resolve, reject) => {
       this.role = 'join';
       this.code = code;
-      this.peer = new Peer(undefined, { debug: 3, config: ICE_SERVERS });
+      // 用穩定 client id 當 peer id,斷線重連時 host 才能辨識為同一玩家
+      this.peer = new Peer(MY_CLIENT_ID, { debug: 3, config: ICE_SERVERS });
       this.peer.on('open', id => {
         this.localId = id;
         this.hostConn = this.peer.connect(code, { reliable: true, serialization: 'json' });
@@ -1764,14 +1791,76 @@ class OnlineController {
           if (!opened) { clearTimeout(t); reject(err); }
         });
       });
-      this.peer.on('error', err => reject(err));
+      // 信令掉線 → 嘗試重連同 id
+      this.peer.on('disconnected', () => {
+        if (!this._destroyed) { try { this.peer.reconnect(); } catch {} }
+      });
+      this.peer.on('error', err => {
+        if (this.localId) this._handleError(err); // 已連上後的錯誤不 reject
+        else reject(err);
+      });
     });
   }
 
   _wireJoinerConn(conn) {
     conn.on('data', data => this.onMessage && this.onMessage(data));
-    conn.on('close', () => this.onClose && this.onClose());
+    conn.on('close', () => {
+      if (this._destroyed) return;
+      // 不立即判定離線 — 啟動自動重連流程
+      this._startJoinerReconnect();
+    });
     conn.on('error', err => this._handleError(err));
+  }
+
+  // joiner: host 連線中斷 → 在寬限期內反覆嘗試重新撥號回房間
+  _startJoinerReconnect() {
+    if (this._reconnecting || this._destroyed) return;
+    this._reconnecting = true;
+    this.onReconnecting && this.onReconnecting();
+    const deadline = Date.now() + RECONNECT_GRACE_MS;
+    const attempt = () => {
+      if (this._destroyed) return;
+      if (Date.now() > deadline) {
+        // 寬限期過 → 真正視為斷線
+        this._reconnecting = false;
+        this.onClose && this.onClose();
+        return;
+      }
+      // 信令斷了先把它拉回來
+      if (this.peer && this.peer.disconnected && !this.peer.destroyed) {
+        try { this.peer.reconnect(); } catch {}
+      }
+      let settled = false;
+      let conn;
+      try {
+        conn = this.peer.connect(this.code, { reliable: true, serialization: 'json' });
+      } catch {
+        return void setTimeout(attempt, 1500);
+      }
+      const giveUp = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try { conn.close(); } catch {}
+        setTimeout(attempt, 500);
+      }, 3000);
+      conn.on('open', () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(giveUp);
+        this.hostConn = conn;
+        this.conns = [conn];
+        this._reconnecting = false;
+        this._wireJoinerConn(conn);
+        this.onReconnected && this.onReconnected();
+      });
+      conn.on('error', () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(giveUp);
+        setTimeout(attempt, 800);
+      });
+    };
+    attempt();
   }
 
   // 廣播訊息 — host:送給所有 joiner;joiner:送給 host (host 會再轉發)
@@ -1819,6 +1908,8 @@ class OnlineController {
   }
 
   close() {
+    this._destroyed = true;
+    this._reconnecting = false;
     for (const c of this.conns) { try { c.close(); } catch {} }
     if (this.peer) { try { this.peer.destroy(); } catch {} }
     this.peer = null;
@@ -1880,6 +1971,8 @@ const peerNicknames = new Map(); // peerId → nickname (host 用,儲存 joiner 
 let localRematchReady = false;
 let peerRematchReady = false;
 let rematchVotes = new Set(); // 多人 rematch — 已投票的 peer id 集合
+const reconnectTimers = new Map(); // host: peerId → 寬限期淘汰倒數 timer
+let localFrozen = false;    // 本地玩家重連期間凍結遊戲 (避免盲目陣亡)
 let countdownPhase = 0;     // 0=無倒數,3/2/1=顯示數字,-1=顯示 GO!
 let countdownAccum = 0;
 const STATE_SEND_INTERVAL = 50; // ms,每秒約 20 次快照
@@ -2099,10 +2192,15 @@ function prepareOnlineGameStart(rosterData) {
       const p = roster.find(p => p.peerId === msg.peerId);
       if (p && p.alive) {
         p.alive = false;
+        setReconnectingUI(p.slot, false);
         applyEliminatedUI(p.slot);
         if (games[p.slot]) games[p.slot].gameOver = true;
         checkWinnerOrEnd();
       }
+    } else if (msg.type === 'peer-status') {
+      // host 廣播某玩家重連狀態 — 其他 joiner 同步顯示「重連中」
+      const p = roster.find(p => p.peerId === msg.peerId);
+      if (p) setReconnectingUI(p.slot, msg.status === 'reconnecting');
     } else if (msg.type === 'start') {
       // host 廣播重新開始 (rematch) — 同步房主的垃圾洞模式
       messyGarbage = !!msg.messyGarbage;
@@ -2110,21 +2208,52 @@ function prepareOnlineGameStart(rosterData) {
     }
   };
 
-  // host 端:遊戲中有玩家斷線 → 視為被淘汰,廣播給其他人
+  // host 端:遊戲中有玩家斷線 → 先給寬限期等待重連,逾時才判定淘汰
   if (online.role === 'host') {
     online.onPeerLeave = (peerId) => {
       const p = roster.find(p => p.peerId === peerId);
-      if (p && p.alive) {
-        p.alive = false;
-        applyEliminatedUI(p.slot);
-        if (games[p.slot]) games[p.slot].gameOver = true;
-        online.send({ type: 'peer-left', peerId });
-        checkWinnerOrEnd();
-      }
+      if (!p || !p.alive) return;
+      // 已在等待重連 → 不重複起算
+      if (reconnectTimers.has(peerId)) return;
+      setReconnectingUI(p.slot, true);
+      online.send({ type: 'peer-status', peerId, status: 'reconnecting' });
+      const timer = setTimeout(() => {
+        reconnectTimers.delete(peerId);
+        setReconnectingUI(p.slot, false);
+        if (p.alive) {
+          p.alive = false;
+          applyEliminatedUI(p.slot);
+          if (games[p.slot]) games[p.slot].gameOver = true;
+          online.send({ type: 'peer-left', peerId });
+          checkWinnerOrEnd();
+        }
+      }, RECONNECT_GRACE_MS);
+      reconnectTimers.set(peerId, timer);
+    };
+    // 既有玩家重連回來 → 取消淘汰倒數,清除重連中提示
+    online.onPeerReconnect = (peerId) => {
+      const t = reconnectTimers.get(peerId);
+      if (t) { clearTimeout(t); reconnectTimers.delete(peerId); }
+      const p = roster.find(p => p.peerId === peerId);
+      if (p) setReconnectingUI(p.slot, false);
+      online.send({ type: 'peer-status', peerId, status: 'back' });
     };
   } else {
-    // joiner: host 斷線 → 全員結束
+    // joiner: 與 host 連線中斷 → OnlineController 會自動嘗試重連
+    online.onReconnecting = () => {
+      if (running) { showLocalReconnectOverlay(true); localFrozen = true; }
+    };
+    online.onReconnected = () => {
+      showLocalReconnectOverlay(false);
+      localFrozen = false;
+      lastTime = performance.now(); // 重置計時避免凍結期間累積的 delta 暴衝
+      // 重連後補送一次 hello,讓 host 確認暱稱對應
+      online.send({ type: 'hello', nickname: myNickname, reconnect: true });
+    };
+    // 寬限期過仍未重連 → 視為主機斷線/自己離線,結束
     online.onClose = () => {
+      showLocalReconnectOverlay(false);
+      localFrozen = false;
       if (running) endMatchHostDisconnect();
       else {
         $('overlay-title').textContent = 'DISCONNECTED';
@@ -2151,8 +2280,20 @@ function applyEliminatedUI(slot) {
 function clearEliminatedUI() {
   for (let i = 1; i <= 5; i++) {
     const sec = document.querySelector('.player.p' + i);
-    if (sec) sec.classList.remove('eliminated');
+    if (sec) { sec.classList.remove('eliminated'); sec.classList.remove('reconnecting'); }
   }
+}
+
+// 在某玩家的棋盤上顯示/清除「重連中」狀態
+function setReconnectingUI(slot, on) {
+  const sec = document.querySelector('.player.p' + (slot + 1));
+  if (sec) sec.classList.toggle('reconnecting', !!on);
+}
+
+// 本地玩家自己斷線重連時的全螢幕提示
+function showLocalReconnectOverlay(on) {
+  const overlay = $('reconnect-overlay');
+  if (overlay) overlay.classList.toggle('hidden', !on);
 }
 
 function checkWinnerOrEnd() {
@@ -2364,7 +2505,7 @@ function mainLoop(time) {
     return;
   }
 
-  if (!paused) {
+  if (!paused && !localFrozen) {
     for (const g of games) g.tick(delta);
     if (cpuAI) cpuAI.tick(delta);
     // 線上模式:節流廣播自己的快照給所有對手
@@ -2463,6 +2604,11 @@ function backToMenu() {
   document.querySelectorAll('.player.p1, .player.p2').forEach(el => el.classList.remove('hidden'));
   document.querySelectorAll('.player').forEach(el => el.classList.remove('local-player'));
   peerNicknames.clear();
+  // 清掉所有重連寬限倒數
+  reconnectTimers.forEach(t => clearTimeout(t));
+  reconnectTimers.clear();
+  showLocalReconnectOverlay(false);
+  localFrozen = false;
   // 線上對戰可能曾覆寫 messyGarbage 為房主設定,離開後還原成使用者偏好
   messyGarbage = userMessyGarbage;
   if (online) {
@@ -2549,6 +2695,118 @@ $('cpu-back').addEventListener('click', () => {
 });
 document.querySelectorAll('.diff-btn').forEach(btn => {
   btn.addEventListener('click', () => startCpu(btn.dataset.diff));
+});
+
+// ===== 玩法教學 =====
+const TUTORIAL_PAGES = [
+  {
+    title: '基本操作',
+    html: `
+      <p><span class="tut-key">← →</span> 左右移動 · <span class="tut-key">↓</span> 軟降(加速落下)</p>
+      <p><span class="tut-key">↑</span> / <span class="tut-key">X</span> 順時針轉 · <span class="tut-key">Z</span> 逆時針轉</p>
+      <p><span class="tut-key">Space</span> 硬降(瞬間落到底並鎖定)</p>
+      <p><span class="tut-key">Shift</span> / <span class="tut-key">C</span> 暫存(Hold)目前方塊</p>
+      <p><span class="tut-key">P</span> 暫停 · <span class="tut-key">M</span> 靜音</p>
+      <p>目標:把方塊填滿整列來消除。一次消越多列分數越高!</p>`,
+  },
+  {
+    title: '消行計分',
+    html: `
+      <p>一次消除的行數越多,分數與攻擊力越高:</p>
+      <div class="tut-visual">SINGLE  (1 行)  =  100 分
+DOUBLE  (2 行)  =  300 分
+TRIPLE  (3 行)  =  500 分
+TETRIS  (4 行)  =  800 分</div>
+      <p>分數會再 <span class="tut-hi">× 目前等級</span>。每消 10 行升 1 級,下落速度加快。</p>
+      <p>用 <span class="tut-hi">I 方塊</span>一次消 4 行(TETRIS)是最有效率的得分方式!</p>`,
+  },
+  {
+    title: 'T-Spin 技巧',
+    html: `
+      <p><span class="tut-hi">T-Spin</span> 是把 T 方塊「轉」進一個只有旋轉才塞得進去的凹槽。</p>
+      <div class="tut-visual">█ ░ █      █ T █
+█ ░ ░  →   █ T T   ← 轉進去再消行
+█ █ ░      █ █ T</div>
+      <p>T-Spin 消行分數遠高於一般消行:</p>
+      <div class="tut-visual">T-Spin Single = 800 分
+T-Spin Double = 1200 分
+T-Spin Triple = 1600 分</div>
+      <p>對戰時 T-Spin 送出的垃圾行也更多!</p>`,
+  },
+  {
+    title: 'Back-to-Back (B2B)',
+    html: `
+      <p>連續做出<span class="tut-hi">困難消行</span>(TETRIS 或任何 T-Spin 消行),</p>
+      <p>中間沒有被普通消行打斷的話,會觸發 <span class="tut-hi">B2B</span>。</p>
+      <div class="tut-visual">TETRIS → TETRIS → T-Spin
+   ↑ 第 2 個起 ×1.5 分</div>
+      <p>B2B 期間每次困難消行<span class="tut-hi">分數 ×1.5</span>、對戰多送 1 行垃圾。</p>
+      <p>頂端的 B2B 計數器會顯示你目前連了幾次。</p>`,
+  },
+  {
+    title: 'Perfect Clear (全消)',
+    html: `
+      <p>如果消行後整個棋盤<span class="tut-hi">完全清空</span>,就是 Perfect Clear!</p>
+      <div class="tut-visual">消除前        消除後
+░░░░░░░░░░ →  (整個清空)
+██████████</div>
+      <p>這是最高難度的技巧,獎勵極高:</p>
+      <div class="tut-visual">Single PC = 800   Tetris PC = 2000
+B2B Tetris PC = 3200 分</div>
+      <p>對戰時 Perfect Clear 直接送對手 <span class="tut-hi">10 行</span>垃圾!</p>`,
+  },
+  {
+    title: 'COMBO 連消',
+    html: `
+      <p>連續多個方塊都有消行(中間不落空),就會累積 <span class="tut-hi">COMBO</span>。</p>
+      <div class="tut-visual">消行 → 消行 → 消行 → ...
+ 1      2      3   COMBO</div>
+      <p>COMBO 越高,額外加分越多、對戰送出的垃圾也越多。</p>
+      <p>保持連續消行是壓制對手的關鍵戰術之一!</p>`,
+  },
+  {
+    title: '對戰攻擊',
+    html: `
+      <p>對戰時消行會把<span class="tut-hi">垃圾行</span>送給對手,從底部往上頂。</p>
+      <div class="tut-visual">你消行  →  攻擊  →  對手底部冒出垃圾行
+                    (留一個洞要自己補)</div>
+      <p>送出的垃圾行數 = 消行類型 + B2B + COMBO + 全消加成。</p>
+      <p>當你也有待落垃圾時,主動消行可以<span class="tut-hi">抵銷</span>掉,不會落下。</p>
+      <p>把對手的棋盤頂到頂端,就贏了!</p>`,
+  },
+  {
+    title: '線上對戰',
+    html: `
+      <p>進入「線上對戰」後可先輸入<span class="tut-hi">暱稱</span>(留空隨機產生)。</p>
+      <p><span class="tut-hi">建立房間</span>:把房間碼傳給朋友,最多 5 人同房。</p>
+      <p><span class="tut-hi">加入房間</span>:輸入朋友給的房間碼即可連線。</p>
+      <p>遊戲中若短暫斷線會自動嘗試<span class="tut-hi">重連</span>,座位保留約 15 秒。</p>
+      <p>準備好了嗎?找朋友開一場吧!</p>`,
+  },
+];
+let tutorialPage = 0;
+function renderTutorialPage() {
+  const page = TUTORIAL_PAGES[tutorialPage];
+  $('tutorial-card').innerHTML = `<h3>${page.title}</h3>${page.html}`;
+  $('tut-progress').textContent = `${tutorialPage + 1} / ${TUTORIAL_PAGES.length}`;
+  $('tut-prev').disabled = tutorialPage === 0;
+  $('tut-next').disabled = tutorialPage === TUTORIAL_PAGES.length - 1;
+}
+$('btn-tutorial').addEventListener('click', () => {
+  tutorialPage = 0;
+  renderTutorialPage();
+  $('mode-select').classList.add('hidden');
+  $('tutorial-select').classList.remove('hidden');
+});
+$('tut-prev').addEventListener('click', () => {
+  if (tutorialPage > 0) { tutorialPage--; renderTutorialPage(); }
+});
+$('tut-next').addEventListener('click', () => {
+  if (tutorialPage < TUTORIAL_PAGES.length - 1) { tutorialPage++; renderTutorialPage(); }
+});
+$('tutorial-back').addEventListener('click', () => {
+  $('tutorial-select').classList.add('hidden');
+  $('mode-select').classList.remove('hidden');
 });
 $('overlay-restart').addEventListener('click', () => {
   if (mode === 'online') onlineRequestRematch();
