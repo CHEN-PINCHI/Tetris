@@ -129,16 +129,19 @@ function getKickTable(type, from, to) {
 }
 
 // AI 難度設定
-//   thinkDelay : 出現新方塊到開始動作的延遲 (ms)
-//   moveDelay  : 每個按鍵動作之間的間隔 (ms)
-//   topRatio   : 從前 N% 的候選中隨機挑(0=永遠最佳)
-//   useHold    : 是否會用 Hold
-//   lookahead  : 是否評估下一塊(1-step lookahead)
-//   maxLevel   : 限制 AI 的最大等級
+//   thinkDelay  : 出現新方塊到開始動作的延遲 (ms) — 越大越慢、越好打
+//   moveDelay   : 每個按鍵動作之間的間隔 (ms)
+//   topRatio    : 從前 N% 的候選中隨機挑(0=永遠最佳,越大越容易失誤)
+//   useHold     : 是否會用 Hold
+//   lookahead   : 是否評估下一塊(1-step lookahead)
+//   tetrisStyle : 無壓力時預留 Tetris 井,存著打 4 行
+//   battle      : 對戰意識 — 估算攻擊輸出、把即將落下的垃圾納入考量
+//   attackWeight: 攻擊輸出的權重 (越大越愛打大招送垃圾)
+//   maxLevel    : 限制 AI 的最大等級 (避免重力過快)
 const AI_DIFFICULTIES = {
-  easy:   { name: '簡單', thinkDelay: 350, moveDelay: 140, topRatio: 0.18, useHold: false, lookahead: false, tetrisStyle: false, maxLevel: 2 },
-  normal: { name: '一般', thinkDelay: 150, moveDelay: 65,  topRatio: 0.05, useHold: true,  lookahead: true,  tetrisStyle: false, maxLevel: 8 },
-  hard:   { name: '困難', thinkDelay: 35,  moveDelay: 22,  topRatio: 0,    useHold: true,  lookahead: true,  tetrisStyle: true,  maxLevel: 12 },
+  easy:   { name: '簡單', thinkDelay: 430, moveDelay: 165, topRatio: 0.32, useHold: false, lookahead: false, tetrisStyle: false, battle: false, attackWeight: 0,   maxLevel: 3 },
+  normal: { name: '一般', thinkDelay: 130, moveDelay: 52,  topRatio: 0.07, useHold: true,  lookahead: true,  tetrisStyle: false, battle: true,  attackWeight: 0.5, maxLevel: 8 },
+  hard:   { name: '困難', thinkDelay: 26,  moveDelay: 16,  topRatio: 0,    useHold: true,  lookahead: true,  tetrisStyle: true,  battle: true,  attackWeight: 0.95, maxLevel: 15 },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -1539,10 +1542,14 @@ class AIController {
     return { board: cleaned, cleared, dropY: y };
   }
 
-  // 評估函式 — tetrisStyle 模式會學高手:預留最右欄當 Tetris 井
+  // 評估函式 — battle 模式帶對戰意識 (攻擊輸出 + 垃圾壓力求生);
+  // tetrisStyle 模式無壓力時預留最右欄當 Tetris 井
   evaluate(board, lines) {
     const tetrisStyle = this.cfg.tetrisStyle;
+    const battle = this.cfg.battle;
     const WELL_COL = COLS - 1;
+    // 對戰意識:把「即將落下的垃圾」納入考量 — 壓力大時要壓低盤面、清行抵銷
+    const pending = battle ? (this.game.pendingGarbage || 0) : 0;
 
     const heights = [];
     let holes = 0;
@@ -1565,48 +1572,57 @@ class AIController {
     const aggHeight = playHeights.reduce((a, b) => a + b, 0);
     const maxHeight = Math.max(...playHeights);
 
-    // 凹凸度:tetrisStyle 模式跳過井
+    // 是否處於垃圾壓力下 (即將被頂高,或盤面已偏高) — 此時放棄存井改求生
+    const underPressure = pending >= 4 || maxHeight >= 12;
+
+    // 凹凸度:存井策略時跳過井欄
+    const wellActive = tetrisStyle && !underPressure;
     let bumpiness = 0;
     for (let x = 1; x < COLS; x++) {
-      if (tetrisStyle && (x === WELL_COL || x - 1 === WELL_COL)) continue;
+      if (wellActive && (x === WELL_COL || x - 1 === WELL_COL)) continue;
       bumpiness += Math.abs(heights[x] - heights[x - 1]);
     }
 
     // 井懲罰(只算「非預留井」的深井)
     let wells = 0;
     for (let x = 0; x < COLS; x++) {
-      if (tetrisStyle && x === WELL_COL) continue;
-      const leftIsWell = tetrisStyle && (x - 1 === WELL_COL);
-      const rightIsWell = tetrisStyle && (x + 1 === WELL_COL);
+      if (wellActive && x === WELL_COL) continue;
+      const leftIsWell = wellActive && (x - 1 === WELL_COL);
+      const rightIsWell = wellActive && (x + 1 === WELL_COL);
       const left  = (x === 0          || leftIsWell)  ? ROWS : heights[x - 1];
       const right = (x === COLS - 1   || rightIsWell) ? ROWS : heights[x + 1];
       const d = Math.max(0, Math.min(left, right) - heights[x]);
       wells += d * (d + 1) / 2;
     }
 
-    // 行得分:tetrisStyle 大幅獎勵 4 行,小清打折
+    // 行得分:存井時惜清留 Tetris,受壓/一般時正常清行求生
     let lineScore;
-    if (tetrisStyle) {
+    if (wellActive) {
       lineScore = lines === 4 ? 8.0
                 : lines === 0 ? 0
-                : lines * 0.15;  // 1~3 行只給一點點,避免亂消
+                : lines * 0.15;  // 1~3 行只給一點點,避免亂消破壞井
     } else {
-      lineScore = lines * 0.80;
+      lineScore = lines * 0.85;
     }
 
-    // Tetris 井獎勵:預留井比其他欄低 0~4 格最理想
+    // 攻擊輸出:用 Guideline 攻擊表估算,鼓勵打大招送垃圾 + 抵銷自身待落垃圾
+    const attack = battle ? (ATTACK_TABLE[lines] || 0) : 0;
+
+    // Tetris 井獎勵:預留井比其他欄低 0~4 格最理想 (僅存井策略生效時)
     let wellBonus = 0;
-    if (tetrisStyle) {
-      const otherMax = maxHeight; // 已是非井欄位的最高
-      const depth = otherMax - heights[WELL_COL];
+    if (wellActive) {
+      const depth = maxHeight - heights[WELL_COL];
       if (depth >= 0 && depth <= 4) wellBonus = depth * 0.7;
       else if (depth > 4)           wellBonus = 4 * 0.7 - (depth - 4) * 0.6;
       else                          wellBonus = depth * 1.0; // 井被填高反而懲罰
     }
 
-    const heightPanic = Math.max(0, maxHeight - 14);
+    // 求生:把即將落下的垃圾算進等效高度,壓力越大越想壓低
+    const effectiveMax = maxHeight + pending;
+    const heightPanic = Math.max(0, effectiveMax - 14);
 
     return lineScore
+         + attack * this.cfg.attackWeight
          - aggHeight   * 0.55
          - holes       * 1.40
          - bumpiness   * 0.30
